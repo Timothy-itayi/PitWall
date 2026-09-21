@@ -81,8 +81,3 @@ storage account. Do not commit connection strings or function keys.
 Race responses include `x-pitwall-cache: MISS` on the first request and
 `x-pitwall-cache: HIT` after the detail has been cached.
 
-## Data caveats
-
-OpenF1 championship endpoints are beta. Overtake data may be incomplete, and
-the fastest-lap comparison is the lowest valid lap duration in the OpenF1
-dataset rather than an official fastest-lap classification.
