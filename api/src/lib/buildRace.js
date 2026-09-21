@@ -24,6 +24,11 @@ function displayName(driver, driverNumber) {
   return driver.full_name || driver.broadcast_name || `Driver #${driverNumber}`;
 }
 
+function normalizeTeamColour(value) {
+  const hex = String(value || "").replace(/^#/, "").toUpperCase();
+  return /^[0-9A-F]{6}$/.test(hex) ? hex : null;
+}
+
 function firstPositionByDriver(positions) {
   const map = new Map();
   const sorted = [...positions].sort((a, b) => Date.parse(a.date) - Date.parse(b.date));
@@ -139,7 +144,7 @@ async function buildRaceDetail(sessionKey) {
         fullName: displayName(driver, driverNumber),
         acronym: driver?.name_acronym || null,
         teamName: driver?.team_name || null,
-        teamColour: driver?.team_colour || null,
+        teamColour: normalizeTeamColour(driver?.team_colour),
         finishPosition,
         initialPosition,
         placesGained,

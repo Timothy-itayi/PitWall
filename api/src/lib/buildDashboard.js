@@ -36,6 +36,26 @@ function displayName(driver, driverNumber) {
   return driver.full_name || driver.broadcast_name || `Driver #${driverNumber}`;
 }
 
+function normalizeTeamColour(value) {
+  const hex = String(value || "").replace(/^#/, "").toUpperCase();
+  return /^[0-9A-F]{6}$/.test(hex) ? hex : null;
+}
+
+function colourFromDriver(driver) {
+  return normalizeTeamColour(driver?.team_colour);
+}
+
+function colourFromTeamName(teamName, drivers) {
+  if (!teamName) return null;
+  for (const driver of drivers) {
+    if (driver.team_name === teamName) {
+      const colour = colourFromDriver(driver);
+      if (colour) return colour;
+    }
+  }
+  return null;
+}
+
 function normalizeSession(session) {
   return {
     sessionKey: session.session_key,
@@ -112,6 +132,7 @@ function latestRaceResult(results, drivers) {
         fullName: displayName(driver, row.driver_number),
         acronym: driver?.name_acronym || null,
         teamName: driver?.team_name || null,
+        teamColour: colourFromDriver(driver),
       };
     });
 }
@@ -128,17 +149,19 @@ function normalizeDriverChampionship(rows, drivers) {
         fullName: displayName(driver, row.driver_number),
         acronym: driver?.name_acronym || null,
         teamName: driver?.team_name || null,
+        teamColour: colourFromDriver(driver),
         points: row.points_current,
       };
     });
 }
 
-function normalizeTeamChampionship(rows) {
+function normalizeTeamChampionship(rows, drivers) {
   return [...rows]
     .sort((a, b) => (a.position_current || 99) - (b.position_current || 99))
     .map((row) => ({
       position: row.position_current,
       teamName: row.team_name,
+      teamColour: colourFromTeamName(row.team_name, drivers),
       points: row.points_current,
     }));
 }
@@ -186,7 +209,7 @@ async function buildDashboardSnapshot(log = console) {
       top3: latestRaceResult(results, drivers),
     };
     driverChampionship = normalizeDriverChampionship(championshipDrivers, drivers);
-    teamChampionship = normalizeTeamChampionship(championshipTeams);
+    teamChampionship = normalizeTeamChampionship(championshipTeams, drivers);
   }
 
   return {
