@@ -62,7 +62,7 @@ return   OpenF1
          return
 ```
 
-![Cached dashboard response](../evidence/050-function-triggers.png)
+![Cached dashboard response](../evidence/5-function-triggers.png)
 
 ## Static Web App and Function App are separate
 
@@ -106,4 +106,4 @@ Serverless compute and Blob Storage are used because a personal portfolio applic
 
 GitHub Actions deploys the Static Web App from `frontend/` and runs a backend smoke test that syntax-checks and imports the Azure Functions.
 
-![GitHub Actions](../evidence/07-github-actions.png)
+![GitHub Actions](../evidence/7-github-actions.png)

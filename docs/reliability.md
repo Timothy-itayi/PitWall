@@ -37,9 +37,9 @@ There is no anonymous rebuild of a race blob. If OpenF1 later amends a result, t
 
 Application Insights is attached to the Function App. Dashboard reads, race-detail cache hits/misses, and scheduled refreshes show up as traces. Failures are logged without overwriting the last-known-good snapshot.
 
-![Application Insights refresh traces](../evidence/08-app-insights.png)
+![Application Insights refresh traces](../evidence/8-app-insights.png)
 
-![Function App dashboard invocations](../evidence/05-function-triggers.png)
+![Function App dashboard invocations](../evidence/5-function-triggers.png)
 
 ## What this is not
 

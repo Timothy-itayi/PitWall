@@ -4,7 +4,7 @@ Live: [https://jolly-mud-0b0e27600.5.azurestaticapps.net](https://jolly-mud-0b0e
 
 PitWall is a serverless Formula 1 dashboard on Azure, backed by historical OpenF1 data. The browser never calls OpenF1. Visitors read a Function API that serves a private Blob cache.
 
-![PitWall live dashboard](./evidence/06-static-web-app-live.png)
+![PitWall live dashboard](./evidence/6-static-web-app-live.png)
 
 **[Documentation](./docs/README.md)** — architecture, API, reliability, security, and local setup.
 
