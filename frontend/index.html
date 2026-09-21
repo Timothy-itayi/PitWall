@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>PitWall — Race Weekend Intelligence</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <header class="masthead">
+      <div class="brand">
+        <p class="eyebrow">Telemetry board</p>
+        <h1>PITWALL</h1>
+        <p class="tagline">Race Weekend Intelligence</p>
+      </div>
+      <div class="freshness" id="freshness" aria-live="polite">
+        Loading snapshot…
+      </div>
+    </header>
+
+    <main id="main">
+      <p class="banner" id="banner" hidden></p>
+
+      <section class="panel" id="next-gp" aria-labelledby="next-gp-heading">
+        <div class="panel-head">
+          <h2 id="next-gp-heading">Next Grand Prix</h2>
+          <p class="panel-meta" id="next-gp-meta"></p>
+        </div>
+        <div class="next-grid">
+          <div>
+            <p class="meeting-name" id="meeting-name">—</p>
+            <p class="meeting-place" id="meeting-place">—</p>
+            <p class="meeting-circuit" id="meeting-circuit">—</p>
+          </div>
+          <div class="countdown" id="countdown" aria-label="Countdown to next Grand Prix">
+            <div class="count-block"><span id="cd-d">00</span><label>Days</label></div>
+            <div class="count-block"><span id="cd-h">00</span><label>Hours</label></div>
+            <div class="count-block"><span id="cd-m">00</span><label>Minutes</label></div>
+            <div class="count-block"><span id="cd-s">00</span><label>Seconds</label></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel" aria-labelledby="schedule-heading">
+        <h2 id="schedule-heading">Session schedule</h2>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Session</th>
+                <th>Start (UTC)</th>
+                <th>End (UTC)</th>
+              </tr>
+            </thead>
+            <tbody id="schedule-body">
+              <tr><td colspan="3">Waiting for snapshot…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel" aria-labelledby="latest-heading">
+        <div class="panel-head">
+          <h2 id="latest-heading">Latest race</h2>
+          <p class="panel-meta" id="latest-meta"></p>
+        </div>
+        <ol class="podium" id="podium"></ol>
+      </section>
+
+      <div class="split">
+        <section class="panel" aria-labelledby="drivers-heading">
+          <h2 id="drivers-heading">Driver championship</h2>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Pos</th>
+                  <th>Driver</th>
+                  <th>Team</th>
+                  <th class="num">Pts</th>
+                </tr>
+              </thead>
+              <tbody id="drivers-body">
+                <tr><td colspan="4">Waiting for snapshot…</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="panel" aria-labelledby="teams-heading">
+          <h2 id="teams-heading">Constructor championship</h2>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Pos</th>
+                  <th>Team</th>
+                  <th class="num">Pts</th>
+                </tr>
+              </thead>
+              <tbody id="teams-body">
+                <tr><td colspan="3">Waiting for snapshot…</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+
+      <section class="panel" aria-labelledby="season-heading">
+        <h2 id="season-heading">Season so far</h2>
+        <ul class="race-list" id="season-list">
+          <li>Waiting for snapshot…</li>
+        </ul>
+      </section>
+
+      <section class="panel race-detail" id="race-detail" hidden aria-labelledby="race-detail-heading">
+        <div class="panel-head">
+          <h2 id="race-detail-heading">Race analysis</h2>
+          <p class="panel-meta" id="race-detail-meta"></p>
+        </div>
+        <p class="inline-status" id="race-status" hidden></p>
+
+        <h3>PitWall Battle</h3>
+        <div class="battle-controls">
+          <label>
+            Driver A
+            <select id="driver-a"></select>
+          </label>
+          <label>
+            Driver B
+            <select id="driver-b"></select>
+          </label>
+        </div>
+        <div class="table-wrap">
+          <table class="battle-table">
+            <thead>
+              <tr>
+                <th>Metric</th>
+                <th id="battle-a-name">Driver A</th>
+                <th id="battle-b-name">Driver B</th>
+              </tr>
+            </thead>
+            <tbody id="battle-body"></tbody>
+          </table>
+        </div>
+        <div class="stint-grid">
+          <div>
+            <h4 id="stint-a-heading">Tyre stints — A</h4>
+            <ul class="stint-list" id="stint-a"></ul>
+          </div>
+          <div>
+            <h4 id="stint-b-heading">Tyre stints — B</h4>
+            <ul class="stint-list" id="stint-b"></ul>
+          </div>
+        </div>
+
+        <h3>Race timeline</h3>
+        <ol class="timeline" id="timeline"></ol>
+      </section>
+    </main>
+
+    <footer>
+      <p>Source: OpenF1. Championship endpoints are beta. Overtake counts may be incomplete.</p>
+    </footer>
+    <script src="./app.js"></script>
+  </body>
+</html>

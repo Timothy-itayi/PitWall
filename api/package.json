@@ -1,0 +1,15 @@
+{
+  "name": "pitwall-api",
+  "version": "1.0.0",
+  "private": true,
+  "main": "src/functions/*.js",
+  "scripts": {
+    "check": "node scripts/backend-smoke-test.js",
+    "start": "func start"
+  },
+  "dependencies": {
+    "@azure/functions": "^4.16.5",
+    "@azure/identity": "^4.13.3",
+    "@azure/storage-blob": "^12.33.0"
+  }
+}
