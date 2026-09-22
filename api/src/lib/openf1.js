@@ -25,13 +25,16 @@ async function pace() {
 }
 
 function toQuery(params) {
-  const search = new URLSearchParams();
+  const parts = [];
   for (const [key, value] of Object.entries(params)) {
     if (value === undefined || value === null || value === "") continue;
-    search.set(key, String(value));
+    // OpenF1 writes comparison filters as `date>value`. The `=` is the normal
+    // query separator, so the key is `date>`, not `date>=`. Encoding `>` makes
+    // the filter miss and the API returns 404.
+    const encodedKey = /^[A-Za-z0-9_><=]+$/.test(key) ? key : encodeURIComponent(key);
+    parts.push(`${encodedKey}=${encodeURIComponent(String(value))}`);
   }
-  const query = search.toString();
-  return query ? `?${query}` : "";
+  return parts.length ? `?${parts.join("&")}` : "";
 }
 
 async function get(path, params = {}, attempt = 0) {
@@ -101,20 +104,38 @@ function getChampionshipTeams(sessionKey) {
   return get("championship_teams", { session_key: sessionKey });
 }
 
-function getLaps(sessionKey) {
-  return get("laps", { session_key: sessionKey });
+function getLaps(sessionKey, params = {}) {
+  return get("laps", { session_key: sessionKey, ...params });
 }
 
-function getStints(sessionKey) {
-  return get("stints", { session_key: sessionKey });
+function getCarData(sessionKey, driverNumber, window) {
+  return get("car_data", {
+    session_key: sessionKey,
+    driver_number: driverNumber,
+    "date>": window.start,
+    "date<": window.end,
+  });
+}
+
+function getLocation(sessionKey, driverNumber, window) {
+  return get("location", {
+    session_key: sessionKey,
+    driver_number: driverNumber,
+    "date>": window.start,
+    "date<": window.end,
+  });
+}
+
+function getStints(sessionKey, params = {}) {
+  return get("stints", { session_key: sessionKey, ...params });
 }
 
 function getPit(sessionKey) {
   return get("pit", { session_key: sessionKey });
 }
 
-function getPosition(sessionKey) {
-  return get("position", { session_key: sessionKey });
+function getPosition(sessionKey, params = {}) {
+  return get("position", { session_key: sessionKey, ...params });
 }
 
 function getOvertakes(sessionKey) {
@@ -137,6 +158,8 @@ module.exports = {
   getChampionshipDrivers,
   getChampionshipTeams,
   getLaps,
+  getCarData,
+  getLocation,
   getStints,
   getPit,
   getPosition,

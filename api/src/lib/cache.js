@@ -61,6 +61,10 @@ function raceBlobName(sessionKey) {
   return `races/${sessionKey}.json`;
 }
 
+function telemetryBlobName(sessionKey, driverNumber) {
+  return `races/${sessionKey}/telemetry/${driverNumber}.json`;
+}
+
 function readDashboard() {
   return readJsonBlob(DASHBOARD_BLOB);
 }
@@ -77,9 +81,19 @@ function writeRace(sessionKey, detail) {
   return writeJsonBlob(raceBlobName(sessionKey), detail);
 }
 
+function readTelemetry(sessionKey, driverNumber) {
+  return readJsonBlob(telemetryBlobName(sessionKey, driverNumber));
+}
+
+function writeTelemetry(sessionKey, driverNumber, detail) {
+  return writeJsonBlob(telemetryBlobName(sessionKey, driverNumber), detail);
+}
+
 module.exports = {
   readDashboard,
   writeDashboard,
   readRace,
   writeRace,
+  readTelemetry,
+  writeTelemetry,
 };

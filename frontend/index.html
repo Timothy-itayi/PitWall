@@ -3,234 +3,181 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>PitWall — Race Weekend Intelligence</title>
-    <link rel="stylesheet" href="./styles.css?v=22" />
+    <title>PitWall — Telemetry board</title>
+    <link rel="stylesheet" href="./styles.css?v=38" />
   </head>
-  <body class="is-loading">
+  <body class="is-loading" data-view="overview">
     <a class="skip-link" href="#main">Skip to content</a>
-    <header class="masthead">
-      <div class="brand">
-        <p class="eyebrow">Telemetry board</p>
-        <h1>PITWALL</h1>
-        <p class="tagline">Race Weekend Intelligence</p>
-      </div>
-      <div class="freshness" id="freshness" aria-live="polite">
-        <span class="skeleton skeleton-text skeleton-text-wide" aria-hidden="true"></span>
-        <span class="sr-only">Loading snapshot…</span>
-      </div>
-    </header>
-
-    <nav class="page-nav" aria-label="On this page">
-      <a href="#weekend">Weekend</a>
-      <a href="#standings">Standings</a>
-      <a href="#grid">Grid</a>
-      <a href="#race-detail">Race</a>
-      <a href="#battle">Battle</a>
-    </nav>
-
-    <main id="main" aria-busy="true">
-      <p class="banner" id="banner" hidden></p>
-
-      <div class="bento">
-        <section class="tile tile-weekend" id="weekend" aria-labelledby="next-gp-heading">
-          <div class="panel-head">
-            <h2 id="next-gp-heading">Next Grand Prix</h2>
-            <p class="panel-meta" id="next-gp-meta">
-              <span class="skeleton skeleton-text" aria-hidden="true"></span>
-            </p>
+    <div class="app-shell">
+      <aside class="nav-drawer" id="nav-drawer">
+        <div class="drawer-brand">
+          <span class="nav-mark" aria-hidden="true">PW</span>
+          <div class="brand-copy">
+            <h1>PITWALL</h1>
+            <p class="eyebrow">Telemetry board</p>
           </div>
-          <div class="next-grid">
-            <div>
-              <p class="meeting-name" id="meeting-name">
-                <span class="skeleton skeleton-title" aria-hidden="true"></span>
-              </p>
-              <p class="meeting-place" id="meeting-place">
-                <span class="skeleton skeleton-text" aria-hidden="true"></span>
-              </p>
-              <p class="meeting-circuit" id="meeting-circuit">
-                <span class="skeleton skeleton-text skeleton-text-narrow" aria-hidden="true"></span>
-              </p>
-            </div>
-            <div class="countdown" id="countdown" aria-label="Countdown to next Grand Prix">
-              <div class="count-block"><span id="cd-d">00</span><label>Days</label></div>
-              <div class="count-block"><span id="cd-h">00</span><label>Hours</label></div>
-              <div class="count-block"><span id="cd-m">00</span><label>Minutes</label></div>
-              <div class="count-block"><span id="cd-s">00</span><label>Seconds</label></div>
-            </div>
+          <button type="button" class="nav-toggle" id="nav-toggle" aria-expanded="true" aria-controls="view-nav" aria-label="Collapse navigation">
+            <svg viewBox="0 0 18 18" width="16" height="16" aria-hidden="true">
+              <path d="M11 4 L6 9 L11 14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+          </button>
+        </div>
+        <nav class="view-nav" id="view-nav" aria-label="Dashboard views">
+          <button type="button" class="is-active" data-view-target="overview" aria-current="page">
+            <svg class="nav-icon" viewBox="0 0 18 18" aria-hidden="true">
+              <rect x="1" y="1" width="7" height="7" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.4" />
+              <rect x="10" y="1" width="7" height="7" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.4" />
+              <rect x="1" y="10" width="7" height="7" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.4" />
+              <rect x="10" y="10" width="7" height="7" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.4" />
+            </svg>
+            <span class="nav-label">Overview</span>
+          </button>
+          <button type="button" data-view-target="battle">
+            <svg class="nav-icon" viewBox="0 0 18 18" aria-hidden="true">
+              <path d="M4 15 V7 M9 15 V3 M14 15 V9" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
+            </svg>
+            <span class="nav-label">PitWall battle</span>
+          </button>
+        </nav>
+        <div class="drawer-foot">
+          <div class="freshness" id="freshness" aria-live="polite">
+            <span class="skeleton skeleton-text skeleton-text-wide" aria-hidden="true"></span>
+            <span class="sr-only">Loading snapshot…</span>
           </div>
-          <h3 id="schedule-heading">Session schedule</h3>
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Session</th>
-                  <th>Start (UTC)</th>
-                  <th>End (UTC)</th>
-                </tr>
-              </thead>
-              <tbody id="schedule-body">
-                <tr class="skeleton-row"><td colspan="3"><span class="skeleton skeleton-text"></span></td></tr>
-                <tr class="skeleton-row"><td colspan="3"><span class="skeleton skeleton-text"></span></td></tr>
-                <tr class="skeleton-row"><td colspan="3"><span class="skeleton skeleton-text"></span></td></tr>
-              </tbody>
-            </table>
-          </div>
-        </section>
+          <p class="source-note">Source: OpenF1. Championship endpoints are beta. Overtake counts may be incomplete.</p>
+        </div>
+      </aside>
 
-        <section class="tile tile-podium" id="latest" aria-labelledby="latest-heading">
-          <div class="panel-head">
-            <h2 id="latest-heading">Latest race</h2>
-            <p class="panel-meta" id="latest-meta">
-              <span class="skeleton skeleton-text" aria-hidden="true"></span>
-            </p>
-          </div>
-          <ol class="podium" id="podium">
-            <li class="skeleton-card"><span class="skeleton skeleton-text-narrow"></span><span class="skeleton skeleton-title"></span><span class="skeleton skeleton-text"></span></li>
-            <li class="skeleton-card"><span class="skeleton skeleton-text-narrow"></span><span class="skeleton skeleton-title"></span><span class="skeleton skeleton-text"></span></li>
-            <li class="skeleton-card"><span class="skeleton skeleton-text-narrow"></span><span class="skeleton skeleton-title"></span><span class="skeleton skeleton-text"></span></li>
-          </ol>
-        </section>
+      <main id="main" aria-busy="true">
+        <div class="load-pill" id="load-pill">
+          <p class="sheen-text">Data coming through, give us a second or two…</p>
+        </div>
+        <p class="banner" id="banner" hidden></p>
 
-        <section class="tile tile-drivers" id="standings" aria-labelledby="drivers-heading">
-          <h2 id="drivers-heading">Driver championship</h2>
-          <div class="chart chart-scroll" id="drivers-chart" role="img" aria-label="Driver championship points">
-            <div class="skeleton-chart" aria-hidden="true">
-              <div class="skeleton skeleton-bar"></div>
-              <div class="skeleton skeleton-bar"></div>
-              <div class="skeleton skeleton-bar"></div>
-              <div class="skeleton skeleton-bar"></div>
-              <div class="skeleton skeleton-bar"></div>
-              <div class="skeleton skeleton-bar"></div>
-            </div>
-          </div>
-        </section>
-
-        <section class="tile tile-teams" aria-labelledby="teams-heading">
-          <h2 id="teams-heading">Constructor championship</h2>
-          <div class="chart chart-scroll" id="teams-chart" role="img" aria-label="Constructor championship points">
-            <div class="skeleton-chart" aria-hidden="true">
-              <div class="skeleton skeleton-bar"></div>
-              <div class="skeleton skeleton-bar"></div>
-              <div class="skeleton skeleton-bar"></div>
-              <div class="skeleton skeleton-bar"></div>
-              <div class="skeleton skeleton-bar"></div>
-              <div class="skeleton skeleton-bar"></div>
-            </div>
-          </div>
-        </section>
-
-        <section class="tile tile-graph" id="grid" aria-labelledby="grid-heading">
-          <div class="graph-toolbar">
-            <div>
-              <h2 id="grid-heading">Constructor map</h2>
-              <p class="graph-copy" id="graph-copy">P1 at start/finish, then order along the circuit. Tap a pin for the constructor split.</p>
-            </div>
-            <div class="graph-tools">
-              <div class="mode-toggle" role="group" aria-label="Left panel mode">
-                <button type="button" id="mode-pack" aria-pressed="false">Pack</button>
-                <button type="button" id="mode-node" aria-pressed="false">Constructor</button>
+        <div class="stage" id="stage-overview" data-stage="overview">
+          <div class="bento">
+            <section class="tile tile-weekend" id="weekend" aria-labelledby="next-gp-heading">
+              <div class="panel-head">
+                <h2 id="next-gp-heading">Next Grand Prix</h2>
+                <p class="panel-meta" id="next-gp-meta">
+                  <span class="skeleton skeleton-text" aria-hidden="true"></span>
+                </p>
               </div>
-              <label class="race-picker">
-                Grand Prix
-                <select id="season" aria-label="Select Grand Prix">
-                  <option value="">Season championship</option>
+              <div class="next-layout">
+                <div class="next-copy">
+                  <p class="meeting-name" id="meeting-name">
+                    <span class="skeleton skeleton-title" aria-hidden="true"></span>
+                  </p>
+                  <p class="meeting-place" id="meeting-place">
+                    <span class="skeleton skeleton-text" aria-hidden="true"></span>
+                  </p>
+                  <p class="meeting-circuit" id="meeting-circuit">
+                    <span class="skeleton skeleton-text skeleton-text-narrow" aria-hidden="true"></span>
+                  </p>
+                  <div class="countdown" id="countdown" aria-label="Countdown to next Grand Prix">
+                    <div class="count-block"><span id="cd-d">00</span><label>Days</label></div>
+                    <div class="count-block"><span id="cd-h">00</span><label>Hrs</label></div>
+                    <div class="count-block"><span id="cd-m">00</span><label>Min</label></div>
+                    <div class="count-block"><span id="cd-s">00</span><label>Sec</label></div>
+                  </div>
+                  <div class="table-wrap" aria-label="Session schedule">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Session</th>
+                          <th>Start (UTC)</th>
+                          <th>End (UTC)</th>
+                        </tr>
+                      </thead>
+                      <tbody id="schedule-body">
+                        <tr class="skeleton-row"><td colspan="3"><span class="skeleton skeleton-text"></span></td></tr>
+                        <tr class="skeleton-row"><td colspan="3"><span class="skeleton skeleton-text"></span></td></tr>
+                        <tr class="skeleton-row"><td colspan="3"><span class="skeleton skeleton-text"></span></td></tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+                <div class="next-track-wrap">
+                  <canvas id="next-track" aria-label="Next Grand Prix circuit outline"></canvas>
+                </div>
+              </div>
+            </section>
+
+            <section class="tile tile-podium" id="latest" aria-labelledby="latest-heading">
+              <div class="panel-head">
+                <h2 id="latest-heading">Latest race</h2>
+                <p class="panel-meta" id="latest-meta">
+                  <span class="skeleton skeleton-text" aria-hidden="true"></span>
+                </p>
+              </div>
+              <ol class="podium" id="podium">
+                <li class="skeleton-card"><span class="skeleton skeleton-text-narrow"></span><span class="skeleton skeleton-title"></span><span class="skeleton skeleton-text"></span></li>
+                <li class="skeleton-card"><span class="skeleton skeleton-text-narrow"></span><span class="skeleton skeleton-title"></span><span class="skeleton skeleton-text"></span></li>
+                <li class="skeleton-card"><span class="skeleton skeleton-text-narrow"></span><span class="skeleton skeleton-title"></span><span class="skeleton skeleton-text"></span></li>
+              </ol>
+            </section>
+
+            <section class="tile tile-drivers" id="standings" aria-labelledby="drivers-heading">
+              <h2 id="drivers-heading">Driver championship</h2>
+              <div class="standings" id="drivers-chart" aria-label="Driver championship points">
+                <div class="skeleton-chart" aria-hidden="true">
+                  <div class="skeleton skeleton-bar"></div>
+                  <div class="skeleton skeleton-bar"></div>
+                  <div class="skeleton skeleton-bar"></div>
+                  <div class="skeleton skeleton-bar"></div>
+                  <div class="skeleton skeleton-bar"></div>
+                  <div class="skeleton skeleton-bar"></div>
+                </div>
+              </div>
+            </section>
+
+            <section class="tile tile-teams" aria-labelledby="teams-heading">
+              <h2 id="teams-heading">Constructor championship</h2>
+              <div class="standings" id="teams-chart" aria-label="Constructor championship points">
+                <div class="skeleton-chart" aria-hidden="true">
+                  <div class="skeleton skeleton-bar"></div>
+                  <div class="skeleton skeleton-bar"></div>
+                  <div class="skeleton skeleton-bar"></div>
+                  <div class="skeleton skeleton-bar"></div>
+                  <div class="skeleton skeleton-bar"></div>
+                  <div class="skeleton skeleton-bar"></div>
+                </div>
+              </div>
+            </section>
+          </div>
+        </div>
+
+        <div class="stage" id="stage-battle" data-stage="battle" hidden>
+          <section class="tile tile-battle" id="battle" aria-labelledby="battle-heading">
+            <div class="panel-head">
+              <div>
+                <h2 id="battle-heading">PitWall Battle</h2>
+                <p class="panel-meta" id="battle-meta">Add a driver and the Grand Prix they drove.</p>
+              </div>
+            </div>
+            <form class="compare-add" id="compare-add">
+              <label>
+                Driver
+                <select id="compare-driver" aria-label="Select driver">
+                  <option value="">Loading drivers</option>
                 </select>
               </label>
-            </div>
-          </div>
-          <div class="graph-canvas-wrap" id="graph-stage">
-            <canvas id="grid-canvas" aria-label="Constructor node map"></canvas>
-            <aside class="field-drawer" id="field-drawer" aria-hidden="true" aria-labelledby="field-heading">
-              <div class="drawer-head">
-                <h3 id="field-heading">Compare a pack</h3>
-                <button type="button" class="drawer-close" id="field-close">Close</button>
-              </div>
-              <div id="pack-panel">
-                <p class="drawer-meta">Four seats. Same constructor or mixed teams.</p>
-                <div class="field-picks">
-                  <label>Seat 1<select id="field-1"></select></label>
-                  <label>Seat 2<select id="field-2"></select></label>
-                  <label>Seat 3<select id="field-3"></select></label>
-                  <label>Seat 4<select id="field-4"></select></label>
-                </div>
-                <div class="chart battle-chart field-chart" id="field-chart"></div>
-                <div class="stint-grid field-stints" id="field-stints"></div>
-              </div>
-              <div id="node-panel" hidden>
-                <p class="drawer-meta" id="node-meta">Tap a constructor pin on the circuit.</p>
-                <div id="node-body"></div>
-                <div class="stint-grid field-stints" id="node-stints"></div>
-              </div>
-            </aside>
-          </div>
-        </section>
-
-        <section class="tile tile-race" id="race-detail" aria-labelledby="race-detail-heading">
-          <div class="panel-head">
-            <h2 id="race-detail-heading">Race analysis</h2>
-            <p class="panel-meta" id="race-detail-meta">Select a Grand Prix on the constructor map.</p>
-          </div>
-          <p class="inline-status" id="race-status" hidden></p>
-
-          <div id="race-skeleton" hidden>
-            <div class="skeleton-chart" aria-hidden="true">
-              <div class="skeleton skeleton-bar"></div>
-              <div class="skeleton skeleton-bar"></div>
-              <div class="skeleton skeleton-bar"></div>
-              <div class="skeleton skeleton-bar"></div>
-            </div>
-          </div>
-
-          <p class="empty-hint" id="race-empty">Pick a race from the Grand Prix menu, then click a constructor for the teammate split.</p>
-
-          <div id="race-body" hidden>
-            <div class="race-results">
-              <h3>Finishing order</h3>
-              <div class="chart chart-scroll" id="results-chart" role="img" aria-label="Race finishing order"></div>
-            </div>
-            <h3>Race timeline</h3>
-            <ol class="timeline" id="timeline"></ol>
-          </div>
-        </section>
-
-        <section class="tile tile-battle" id="battle" aria-labelledby="battle-heading">
-          <div class="panel-head">
-            <h2 id="battle-heading">PitWall Battle</h2>
-            <p class="panel-meta" id="battle-meta">Any two drivers from the selected race.</p>
-          </div>
-          <p class="empty-hint" id="battle-empty">Select a Grand Prix first. Teammate pairs can be sent here from a constructor node.</p>
-          <div id="battle-body" hidden>
-            <div class="battle-controls">
               <label>
-                Driver A
-                <select id="driver-a"></select>
+                Grand Prix
+                <select id="compare-race" aria-label="Select Grand Prix">
+                  <option value="">No completed race</option>
+                </select>
               </label>
-              <label>
-                Driver B
-                <select id="driver-b"></select>
-              </label>
-            </div>
-            <div class="battle-heads" id="battle-heads"></div>
-            <div class="chart battle-chart" id="battle-chart" role="img" aria-label="Driver comparison"></div>
-            <div class="stint-grid">
-              <div>
-                <h4 id="stint-a-heading">Tyre stints — A</h4>
-                <div class="stint-track" id="stint-a"></div>
-              </div>
-              <div>
-                <h4 id="stint-b-heading">Tyre stints — B</h4>
-                <div class="stint-track" id="stint-b"></div>
-              </div>
-            </div>
-          </div>
-        </section>
-      </div>
-    </main>
-
-    <footer>
-      <p>Source: OpenF1. Championship endpoints are beta. Overtake counts may be incomplete. Bars and graph nodes use OpenF1 team colours.</p>
-    </footer>
-    <script src="./tracks.js?v=22"></script>
-    <script src="./app.js?v=22"></script>
+              <button type="submit" id="compare-add-btn" disabled>Add</button>
+            </form>
+            <p class="compare-note" id="compare-note" hidden></p>
+            <p class="empty-hint" id="compare-empty">Pick a driver and a Grand Prix.</p>
+            <div class="compare-board" id="compare-board" hidden></div>
+          </section>
+        </div>
+      </main>
+    </div>
+    <script src="./tracks.js?v=32"></script>
+    <script src="./app.js?v=34"></script>
   </body>
 </html>

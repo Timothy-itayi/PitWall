@@ -104,6 +104,29 @@ Driver object used by PitWall Battle:
 
 Overtake counts come from OpenF1's `overtakes` dataset. OpenF1 documents that feed as potentially incomplete. The UI labels the metric `OpenF1-recorded overtakes` for that reason.
 
+## `GET /api/race/{sessionKey}/telemetry?driver={driverNumber}`
+
+Anonymous. Both `sessionKey` and `driver` must be positive integers.
+
+This is not the race blob. OpenF1 `car_data` and `location` run at about 3.7 Hz, so a full session will not fit in `races/<sessionKey>.json` and will not be fetched for every car.
+
+On a miss the function:
+
+1. Loads that driver's laps and picks the fastest timed lap that is not a pit-out lap.
+2. Requests `car_data` and `location` only for that lap's time window (`date>=`, `date<=`).
+3. Requests that driver's `position` and `stints`.
+4. Downsamples to at most 220 points and writes `races/<sessionKey>/telemetry/<driver>.json`.
+
+`throttle` is 0–100. `brake` is 0 or 100 (pedal released or pressed). `x` and `y` are the OpenF1 location plane for that lap, which is a different coordinate system from the static circuit outlines. The race view draws this lap as the track and colours it by pedal. Position is the running order at the lap start. Tyre compound is the stint that covers the lap.
+
+| Status | Meaning |
+| --- | --- |
+| 200 | Downsampled lap |
+| 400 | Missing or non-numeric `driver` or `sessionKey` |
+| 404 | Driver has no timed lap |
+| 429 | OpenF1 rate-limited the miss path |
+| 502 | Upstream build failed |
+
 ## `POST /api/refresh`
 
 Function-key authentication (`authLevel: "function"`). Not exposed to the browser.

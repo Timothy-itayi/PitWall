@@ -1,11 +1,22 @@
 const state = {
   dashboard: null,
   race: null,
+  battle: null,
+  telemetry: null,
+  telemetryDriver: null,
+  telemetrySeq: 0,
   selectedSessionKey: null,
+  battleSessionKey: null,
   raceLoadingKey: null,
+  battleLoadingKey: null,
+  raceCache: new Map(),
+  raceInflight: new Map(),
+  compareCards: [],
   countdownTarget: null,
   countdownTimer: null,
 };
+
+const COMPARE_CAP = 6;
 
 const PRODUCTION_API_BASE = "https://func-pitwall-fd884b.azurewebsites.net";
 
@@ -67,6 +78,40 @@ function formatDate(value) {
     dateStyle: "medium",
     timeStyle: "short",
   });
+}
+
+function formatDay(value) {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+  return date.toLocaleDateString(undefined, { day: "numeric", month: "short", timeZone: "UTC" });
+}
+
+function formatClock(value) {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+  return date.toLocaleString(undefined, {
+    weekday: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+    timeZone: "UTC",
+  });
+}
+
+function formatPoints(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return "—";
+  return Number.isInteger(number) ? String(number) : number.toFixed(1);
+}
+
+function formatGap(leader, points) {
+  const value = Number(points);
+  if (!Number.isFinite(value) || !Number.isFinite(leader)) return "—";
+  const gap = leader - value;
+  if (gap === 0) return "—";
+  return `−${formatPoints(gap)}`;
 }
 
 function formatLap(seconds) {
@@ -189,8 +234,8 @@ function renderNextMeeting(meeting) {
 
   setText("meeting-name", meeting.meetingName);
   setText("meeting-place", [meeting.location, meeting.country].filter(Boolean).join(", "));
-  setText("meeting-circuit", meeting.circuit ? `Circuit: ${meeting.circuit}` : "");
-  setText("next-gp-meta", `${formatDate(meeting.dateStart)} → ${formatDate(meeting.dateEnd)}`);
+  setText("meeting-circuit", meeting.circuit || "");
+  setText("next-gp-meta", `${formatDay(meeting.dateStart)} – ${formatDay(meeting.dateEnd)}`);
   state.countdownTarget = countdownTarget(meeting);
   tickCountdown();
 
@@ -201,8 +246,8 @@ function renderNextMeeting(meeting) {
           (session) => `
             <tr>
               <td>${escapeHtml(session.sessionName)}</td>
-              <td>${escapeHtml(formatDate(session.dateStart))}</td>
-              <td>${escapeHtml(formatDate(session.dateEnd))}</td>
+              <td>${escapeHtml(formatClock(session.dateStart))}</td>
+              <td>${escapeHtml(formatClock(session.dateEnd))}</td>
             </tr>`
         )
         .join("")
@@ -233,23 +278,58 @@ function renderLatestRace(race) {
     : `<li><span class="name">Results not published yet.</span></li>`;
 }
 
+function renderStandings(container, rows, ariaLabel) {
+  if (!container) return;
+  container.classList.remove("chart");
+  container.classList.add("standings");
+  container.removeAttribute("role");
+  if (ariaLabel) container.setAttribute("aria-label", ariaLabel);
+  if (!rows.length) {
+    container.innerHTML = `<p class="stint-empty">No championship data.</p>`;
+    return;
+  }
+  const leader = Number(rows[0]?.points);
+  container.innerHTML = `
+    <div class="standings-head" aria-hidden="true"><span>P</span><span>Name</span><span>Pts</span><span>Gap</span></div>
+    <ol class="standings-list">
+      ${rows
+        .map((row) => {
+          const colour = teamColour(row.colour, row.teamName);
+          const detail = row.detail ? `<span class="standings-secondary">${escapeHtml(row.detail)}</span>` : "";
+          return `
+            <li class="standings-row">
+              <span class="standings-pos">${escapeHtml(row.position ?? "")}</span>
+              <span class="standings-name" title="${escapeHtml(row.name)}">
+                <span class="team-pip" style="background:${escapeHtml(colour)}"></span>
+                <span class="standings-primary">${escapeHtml(row.shortName || row.name)}</span>
+                ${detail}
+              </span>
+              <span class="standings-pts">${escapeHtml(formatPoints(row.points))}</span>
+              <span class="standings-gap">${escapeHtml(formatGap(leader, row.points))}</span>
+            </li>`;
+        })
+        .join("")}
+    </ol>`;
+}
+
 function renderChampionships(dashboard) {
   const drivers = dashboard.driverChampionship || [];
-  renderBarChart(
+  renderStandings(
     $("drivers-chart"),
     drivers.map((row) => ({
       position: row.position,
       name: row.fullName,
       shortName: row.acronym || row.fullName,
+      detail: row.teamName,
       teamName: row.teamName,
       colour: row.teamColour,
-      value: row.points,
+      points: row.points,
     })),
-    { ariaLabel: "Driver championship points" }
+    "Driver championship points"
   );
 
   const teams = dashboard.teamChampionship || [];
-  renderBarChart(
+  renderStandings(
     $("teams-chart"),
     teams.map((row) => ({
       position: row.position,
@@ -257,17 +337,33 @@ function renderChampionships(dashboard) {
       shortName: row.teamName,
       teamName: row.teamName,
       colour: row.teamColour,
-      value: row.points,
+      points: row.points,
     })),
-    { ariaLabel: "Constructor championship points" }
+    "Constructor championship points"
   );
 }
 
 function renderSeason(races) {
-  const select = $("season");
+  fillRaceSelect($("season"), races, state.selectedSessionKey, {
+    blankLabel: "Season championship",
+    disabled: Boolean(state.raceLoadingKey),
+  });
+  fillRaceSelect($("battle-season"), races, state.battleSessionKey, {
+    blankLabel: races?.length ? "" : "No completed race",
+    disabled: Boolean(state.battleLoadingKey),
+  });
+  const raceSelect = $("compare-race");
+  fillRaceSelect(raceSelect, races, raceSelect?.value || "", {
+    blankLabel: races?.length ? "" : "No completed race",
+    disabled: false,
+  });
+}
+
+function fillRaceSelect(select, races, selectedKey, { blankLabel, disabled }) {
   if (!select) return;
-  const selected = state.selectedSessionKey ? String(state.selectedSessionKey) : "";
-  const options = [`<option value="">Season championship</option>`];
+  const selected = selectedKey ? String(selectedKey) : "";
+  const options = [];
+  if (blankLabel) options.push(`<option value="">${escapeHtml(blankLabel)}</option>`);
   for (const race of races || []) {
     const name = String(race.meetingName || "Grand Prix").replace(" Grand Prix", " GP");
     const place = race.circuit || race.location || "";
@@ -276,16 +372,18 @@ function renderSeason(races) {
     );
   }
   select.innerHTML = options.join("");
-  select.value = selected;
-  select.disabled = Boolean(state.raceLoadingKey);
+  const hasSelected = [...select.options].some((option) => option.value === selected);
+  select.value = hasSelected ? selected : select.options[0]?.value || "";
+  select.disabled = disabled;
 }
 
 function driverByNumber(number) {
-  return (state.race?.drivers || []).find((driver) => String(driver.driverNumber) === String(number));
+  const pool = state.battle?.drivers || [];
+  return pool.find((driver) => String(driver.driverNumber) === String(number));
 }
 
 function renderDriverOptions() {
-  const drivers = state.race?.drivers || [];
+  const drivers = state.battle?.drivers || [];
   const options = drivers
     .map(
       (driver) =>
@@ -293,10 +391,11 @@ function renderDriverOptions() {
     )
     .join("");
   const blank = `<option value="">Select driver</option>`;
+  const classified = drivers.filter((driver) => driver.finishPosition != null);
   $("driver-a").innerHTML = blank + options;
   $("driver-b").innerHTML = blank + options;
-  $("driver-a").value = "";
-  $("driver-b").value = "";
+  $("driver-a").value = classified[0] ? String(classified[0].driverNumber) : "";
+  $("driver-b").value = classified[1] ? String(classified[1].driverNumber) : "";
 }
 
 function compoundStyle(compound) {
@@ -468,7 +567,7 @@ function scalePercents(values, { invert = false } = {}) {
 }
 
 function driverPool() {
-  if (graph.mode === "race" && state.race) return state.race.drivers || [];
+  if (state.battle?.drivers?.length) return state.battle.drivers;
   return state.dashboard?.driverChampionship || [];
 }
 
@@ -695,16 +794,16 @@ function syncModeToggle() {
 }
 
 function setDrawerMode(mode) {
-  graph.drawerMode = mode === "node" ? "node" : "pack";
-  const pack = graph.drawerMode === "pack";
-  if ($("pack-panel")) $("pack-panel").hidden = !pack;
-  if ($("node-panel")) $("node-panel").hidden = pack;
-  if (pack) {
-    $("field-heading").textContent = "Compare a pack";
-  } else {
-    $("field-heading").textContent = graph.selected?.label || "Constructor";
-    renderNodePanel(graph.selected);
+  if (mode !== "node") {
+    showView("battle");
+    return;
   }
+  graph.drawerMode = "node";
+  const heading = $("field-heading");
+  if (!heading) return;
+  if ($("node-panel")) $("node-panel").hidden = false;
+  heading.textContent = graph.selected?.label || "Constructor";
+  renderNodePanel(graph.selected);
   setFieldDrawerOpen(true);
 }
 
@@ -728,7 +827,7 @@ function renderFieldCompare() {
     return;
   }
   renderPackBoard(chart, drivers);
-  if (graph.mode === "race" && state.race) {
+  if (state.battle) {
     stints.innerHTML = drivers
       .map(
         (driver) => `
@@ -773,7 +872,8 @@ function setBattleAvailable(available) {
 }
 
 function renderBattle() {
-  if (!state.race || $("battle-body").hidden) return;
+  const body = $("battle-body");
+  if (!body || !state.battle || body.hidden) return;
   const driverA = driverByNumber($("driver-a").value);
   const driverB = driverByNumber($("driver-b").value);
   if (!driverA && !driverB) {
@@ -790,25 +890,42 @@ function renderBattle() {
 }
 
 function renderResultsChart(drivers) {
+  const container = $("results-chart");
+  if (!container) return;
   const classified = (drivers || []).filter((driver) => driver.finishPosition != null);
-  const fieldSize = classified.length || 1;
-  renderBarChart(
-    $("results-chart"),
-    classified.map((driver) => ({
-      position: `P${driver.finishPosition}`,
-      name: driver.fullName,
-      shortName: driver.acronym || driver.fullName,
-      teamName: driver.teamName,
-      colour: driver.teamColour,
-      value: fieldSize - driver.finishPosition + 1,
-      display: driver.dnf ? "DNF" : driver.dsq ? "DSQ" : `P${driver.finishPosition}`,
-    })),
-    { ariaLabel: "Race finishing order" }
-  );
+  container.classList.add("standings");
+  container.setAttribute("aria-label", "Race finishing order");
+  if (!classified.length) {
+    container.innerHTML = `<p class="stint-empty">No classified finishers.</p>`;
+    return;
+  }
+  container.innerHTML = `
+    <div class="standings-head" aria-hidden="true"><span>P</span><span>Name</span><span>+/−</span><span>Stops</span></div>
+    <ol class="standings-list">
+      ${classified
+        .map((driver) => {
+          const colour = teamColour(driver.teamColour, driver.teamName);
+          const delta = driver.dnf || driver.dsq ? (driver.dsq ? "DSQ" : "DNF") : formatPlaces(driver.placesGained);
+          const selected = String(state.telemetryDriver) === String(driver.driverNumber) ? " is-selected" : "";
+          return `
+            <li class="standings-row${selected}" data-driver="${escapeHtml(driver.driverNumber)}">
+              <span class="standings-pos">${escapeHtml(driver.finishPosition)}</span>
+              <span class="standings-name" title="${escapeHtml(driver.fullName)}">
+                <span class="team-pip" style="background:${escapeHtml(colour)}"></span>
+                <span class="standings-primary">${escapeHtml(driver.acronym || driver.fullName)}</span>
+                <span class="standings-secondary">${escapeHtml(teamAbbrev(driver.teamName))}</span>
+              </span>
+              <span class="standings-pts">${escapeHtml(delta)}</span>
+              <span class="standings-gap">${escapeHtml(driver.pitStops ?? "—")}</span>
+            </li>`;
+        })
+        .join("")}
+    </ol>`;
 }
 
 function renderTimeline(events) {
   const list = $("timeline");
+  if (!list) return;
   if (!events.length) {
     list.innerHTML = `<li>No race-control events matched the display filter.</li>`;
     return;
@@ -829,11 +946,10 @@ function renderDashboard(dashboard) {
   renderLatestRace(dashboard.latestRace);
   renderChampionships(dashboard);
   renderSeason(dashboard.previousRaces || []);
-    graph.mode = "championship";
-    renderActiveGraph();
-    setBattleAvailable(false);
-    renderFieldOptions();
-    setPageLoading(false);
+  renderFieldOptions();
+  renderCompareDrivers();
+  setPageLoading(false);
+  requestAnimationFrame(paintNextTrack);
 }
 
 function setRaceLoading(loading, message) {
@@ -842,10 +958,11 @@ function setRaceLoading(loading, message) {
   const status = $("race-status");
   skeleton.hidden = !loading;
   body.hidden = loading;
+  status.classList.toggle("sheen-text", Boolean(loading && message));
   if (message) {
     status.hidden = false;
     status.dataset.tone = loading ? "loading" : "";
-    status.textContent = message;
+    status.textContent = loading ? "Data coming through, give us a second or two…" : message;
   } else {
     status.hidden = true;
     status.textContent = "";
@@ -857,12 +974,11 @@ async function loadRace(sessionKey) {
   state.selectedSessionKey = sessionKey;
   state.raceLoadingKey = sessionKey;
   renderSeason(state.dashboard?.previousRaces || []);
-  setBattleAvailable(false);
   $("race-empty").hidden = true;
+  if ($("timeline")) $("timeline").innerHTML = "";
   $("race-detail-heading").textContent = "Race analysis";
   $("race-detail-meta").textContent = `Loading session ${sessionKey}`;
   setRaceLoading(true, "Fetching cached race detail…");
-  $("grid").scrollIntoView({ behavior: "smooth", block: "start" });
 
   try {
     const response = await fetch(apiUrl(`/api/race/${sessionKey}`));
@@ -876,17 +992,12 @@ async function loadRace(sessionKey) {
     const meetingName = payload.meeting?.meetingName || "Selected race";
     $("race-detail-heading").textContent = meetingName;
     $("race-detail-meta").textContent = `${payload.session?.sessionName || "Race"} · ${formatDate(payload.session?.dateEnd)}`;
-    $("battle-meta").textContent = `${meetingName} · pick any two drivers`;
     setRaceLoading(false);
     $("race-empty").hidden = true;
-    renderDriverOptions();
     renderResultsChart(payload.drivers || []);
-    setBattleAvailable(true);
-    renderBattle();
     renderTimeline(payload.raceControl || []);
-    graph.mode = "race";
-    renderActiveGraph();
-    renderFieldOptions();
+    renderTelemetryDrivers(payload.drivers || []);
+    paintRaceTrack();
   } catch (err) {
     state.race = null;
     state.raceLoadingKey = null;
@@ -894,30 +1005,248 @@ async function loadRace(sessionKey) {
     $("race-skeleton").hidden = true;
     $("race-body").hidden = true;
     $("race-empty").hidden = true;
-    setBattleAvailable(false);
     const status = $("race-status");
+    status.classList.remove("sheen-text");
     status.hidden = false;
     delete status.dataset.tone;
     status.textContent = err.message;
   }
 }
 
+async function loadBattle(sessionKey) {
+  const key = String(sessionKey || "");
+  if (!key) return null;
+  if (state.raceCache.has(key)) return state.raceCache.get(key);
+  const pending = state.raceInflight.get(key);
+  if (pending) return pending;
+  const request = (async () => {
+    const response = await fetch(apiUrl(`/api/race/${encodeURIComponent(key)}`));
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(payload.error || `Race request failed (${response.status})`);
+    }
+    state.raceCache.set(key, payload);
+    return payload;
+  })();
+  state.raceInflight.set(key, request);
+  try {
+    return await request;
+  } finally {
+    if (state.raceInflight.get(key) === request) state.raceInflight.delete(key);
+  }
+}
+
+function compareRosterDriver(driverNumber) {
+  return (state.dashboard?.driverChampionship || []).find((driver) => String(driver.driverNumber) === String(driverNumber)) || null;
+}
+
+function compareDriverRecord(card) {
+  const payload = state.raceCache.get(String(card.sessionKey));
+  if (!payload) return null;
+  return (payload.drivers || []).find((driver) => String(driver.driverNumber) === String(card.driverNumber)) || null;
+}
+
+function compareMeetingLabel(sessionKey) {
+  const meeting = state.raceCache.get(String(sessionKey))?.meeting;
+  if (meeting?.meetingName) {
+    const place = meeting.circuit || meeting.location || "";
+    return place ? `${meeting.meetingName} · ${place}` : meeting.meetingName;
+  }
+  const race = (state.dashboard?.previousRaces || []).find((row) => String(row.sessionKey) === String(sessionKey));
+  if (!race) return "Grand Prix";
+  const place = race.circuit || race.location || "";
+  const name = race.meetingName || "Grand Prix";
+  return place ? `${name} · ${place}` : name;
+}
+
+function comparePositionText(driver) {
+  if (!driver) return "—";
+  if (driver.dns) return "DNS";
+  if (driver.dsq) return "DSQ";
+  if (driver.dnf) return "DNF";
+  if (driver.finishPosition != null) return `P${driver.finishPosition}`;
+  return "—";
+}
+
+function compareClassified(driver) {
+  return Boolean(driver) && driver.finishPosition != null && !driver.dnf && !driver.dsq && !driver.dns;
+}
+
+function setCompareNote(message) {
+  const note = $("compare-note");
+  if (!note) return;
+  note.hidden = !message;
+  note.textContent = message || "";
+}
+
+function syncCompareAdd() {
+  const button = $("compare-add-btn");
+  const driver = $("compare-driver")?.value || "";
+  const race = $("compare-race")?.value || "";
+  const full = state.compareCards.length >= COMPARE_CAP;
+  if (button) button.disabled = full || !driver || !race;
+  const note = $("compare-note");
+  if (full) setCompareNote("Six drivers is the board limit.");
+  else if (note && note.textContent === "Six drivers is the board limit.") setCompareNote("");
+}
+
+function renderCompareDrivers() {
+  const select = $("compare-driver");
+  if (!select) return;
+  const pool = state.dashboard?.driverChampionship || [];
+  const current = select.value;
+  if (!pool.length) {
+    select.innerHTML = `<option value="">No drivers</option>`;
+    syncCompareAdd();
+    return;
+  }
+  const groups = new Map();
+  for (const driver of pool) {
+    const team = driver.teamName || "Unattached";
+    if (!groups.has(team)) groups.set(team, []);
+    groups.get(team).push(driver);
+  }
+  let html = "";
+  for (const [team, drivers] of groups) {
+    html += `<optgroup label="${escapeHtml(team)}">`;
+    for (const driver of drivers) {
+      const number = driver.driverNumber != null ? ` · #${driver.driverNumber}` : "";
+      html += `<option value="${escapeHtml(driver.driverNumber)}">${escapeHtml(driver.fullName || driver.acronym || "Driver")}${escapeHtml(number)}</option>`;
+    }
+    html += `</optgroup>`;
+  }
+  select.innerHTML = html;
+  const keep = pool.some((driver) => String(driver.driverNumber) === String(current));
+  select.value = keep ? current : String(pool[0].driverNumber);
+  syncCompareAdd();
+}
+
+function compareCardMarkup(card, driver, bestFinish, bestLap) {
+  const roster = compareRosterDriver(card.driverNumber);
+  const source = driver || roster;
+  const colour = teamColour(source?.teamColour, source?.teamName);
+  const acronym = source?.acronym || "—";
+  const name = source?.fullName || `Driver #${card.driverNumber}`;
+  const meeting = compareMeetingLabel(card.sessionKey);
+  const head = `
+    <header class="compare-card-head">
+      <span class="team-pip" style="background:${escapeHtml(colour)}"></span>
+      <div class="compare-identity">
+        <span class="compare-acronym">${escapeHtml(acronym)}</span>
+        <span class="compare-name">${escapeHtml(name)}</span>
+        <span class="compare-race">${escapeHtml(meeting)}</span>
+      </div>
+      <button type="button" class="compare-remove" data-remove-compare="${escapeHtml(card.id)}">Remove<span class="sr-only"> ${escapeHtml(name)}</span></button>
+    </header>`;
+  if (card.status === "loading") {
+    return `<article class="compare-card is-loading" style="--team:${escapeHtml(colour)}">${head}<p class="compare-status sheen-text">Loading race…</p></article>`;
+  }
+  if (card.status === "error") {
+    return `<article class="compare-card" style="--team:${escapeHtml(colour)}">${head}<p class="compare-status">${escapeHtml(card.error || "Race request failed")}</p></article>`;
+  }
+  if (card.status === "absent" || !driver) {
+    return `<article class="compare-card" style="--team:${escapeHtml(colour)}">${head}<p class="compare-status">Did not start.</p></article>`;
+  }
+  const position = comparePositionText(driver);
+  const bestPos = compareClassified(driver) && driver.finishPosition === bestFinish;
+  const bestTime = typeof driver.fastestLap === "number" && driver.fastestLap === bestLap;
+  return `<article class="compare-card" style="--team:${escapeHtml(colour)}">
+    ${head}
+    <dl class="compare-facts">
+      <div>
+        <dt>Position</dt>
+        <dd${bestPos ? ` class="is-best"` : ""}>${escapeHtml(position)}${bestPos ? `<span class="sr-only">, best finish</span>` : ""}</dd>
+      </div>
+      <div>
+        <dt>Fastest lap</dt>
+        <dd${bestTime ? ` class="is-best"` : ""}>${escapeHtml(formatLap(driver.fastestLap))}${bestTime ? `<span class="sr-only">, quickest lap</span>` : ""}</dd>
+      </div>
+    </dl>
+    <p class="compare-tyres-label">Tyres</p>
+    <div class="stint-track">${stintTrackMarkup(driver)}</div>
+  </article>`;
+}
+
+function renderCompareBoard() {
+  const board = $("compare-board");
+  const empty = $("compare-empty");
+  if (!board) return;
+  const cards = state.compareCards;
+  if (empty) empty.hidden = cards.length > 0;
+  board.hidden = cards.length === 0;
+  if (!cards.length) {
+    board.innerHTML = "";
+    syncCompareAdd();
+    return;
+  }
+  const records = cards.map((card) => (card.status === "ready" ? compareDriverRecord(card) : null));
+  const sameSession = cards.every((card) => String(card.sessionKey) === String(cards[0].sessionKey));
+  const finishes = records.filter(compareClassified).map((driver) => driver.finishPosition);
+  const bestFinish = finishes.length >= 2 ? Math.min(...finishes) : null;
+  const laps = sameSession ? records.map((driver) => driver?.fastestLap).filter((value) => typeof value === "number") : [];
+  const bestLap = laps.length >= 2 ? Math.min(...laps) : null;
+  board.innerHTML = cards.map((card, index) => compareCardMarkup(card, records[index], bestFinish, bestLap)).join("");
+  syncCompareAdd();
+}
+
+async function addCompareCard(driverNumber, sessionKey) {
+  const driver = String(driverNumber || "");
+  const session = String(sessionKey || "");
+  if (!driver || !session) return;
+  if (state.compareCards.length >= COMPARE_CAP) {
+    syncCompareAdd();
+    return;
+  }
+  const id = `${session}:${driver}`;
+  if (state.compareCards.some((card) => card.id === id)) {
+    setCompareNote("That driver is already on this Grand Prix.");
+    return;
+  }
+  const note = $("compare-note");
+  if (note && note.textContent === "That driver is already on this Grand Prix.") setCompareNote("");
+  state.compareCards.push({ id, sessionKey: session, driverNumber: driver, status: "loading", error: "" });
+  renderCompareBoard();
+  try {
+    await loadBattle(session);
+    const card = state.compareCards.find((row) => row.id === id);
+    if (!card) return;
+    card.status = compareDriverRecord(card) ? "ready" : "absent";
+    card.error = "";
+  } catch (err) {
+    const card = state.compareCards.find((row) => row.id === id);
+    if (!card) return;
+    card.status = "error";
+    card.error = err.message || "Race request failed";
+  }
+  renderCompareBoard();
+}
+
+function removeCompareCard(id) {
+  const next = state.compareCards.filter((card) => card.id !== id);
+  if (next.length === state.compareCards.length) return;
+  state.compareCards = next;
+  const note = $("compare-note");
+  if (note && note.textContent === "That driver is already on this Grand Prix.") setCompareNote("");
+  renderCompareBoard();
+}
+
 function showChampionshipMap() {
   state.selectedSessionKey = null;
   state.race = null;
   state.raceLoadingKey = null;
-  graph.mode = "championship";
+  state.telemetry = null;
+  state.telemetryDriver = null;
+  state.telemetrySeq += 1;
   renderSeason(state.dashboard?.previousRaces || []);
   $("race-skeleton").hidden = true;
   $("race-body").hidden = true;
   $("race-empty").hidden = false;
   $("race-status").hidden = true;
   $("race-detail-heading").textContent = "Race analysis";
-  $("race-detail-meta").textContent = "Select a Grand Prix on the constructor map.";
-  $("battle-meta").textContent = "Any two drivers from the selected race.";
-  setBattleAvailable(false);
-  renderActiveGraph();
-  renderFieldOptions();
+  $("race-detail-meta").textContent = "Pick a Grand Prix for the lap feed.";
+  if ($("timeline")) $("timeline").innerHTML = "";
+  clearTelemetryFeed();
+  paintRaceTrack();
 }
 
 async function loadDashboard() {
@@ -984,6 +1313,35 @@ function teamShortName(name) {
   return String(name || "")
     .replace(" Racing", "")
     .replace(" F1 Team", "");
+}
+
+function teamAbbrev(name) {
+  const key = String(name || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+f1 team$/, "")
+    .replace(/\s+racing$/, "");
+  const known = {
+    mclaren: "McL",
+    ferrari: "Fer",
+    "red bull": "RBR",
+    mercedes: "Mer",
+    "aston martin": "Ast",
+    alpine: "Alp",
+    williams: "Wil",
+    rb: "RB",
+    "racing bulls": "RB",
+    haas: "Haa",
+    "kick sauber": "Sau",
+    sauber: "Sau",
+    audi: "Aud",
+    cadillac: "Cad",
+  };
+  if (known[key]) return known[key];
+  const word = key.split(/\s+/).filter(Boolean)[0] || "";
+  if (!word) return "";
+  if (word.length <= 3) return word.charAt(0).toUpperCase() + word.slice(1);
+  return word.charAt(0).toUpperCase() + word.slice(1, 3);
 }
 
 function hubNode({ id, label, short, meta }) {
@@ -1116,14 +1474,8 @@ function normalizeTrackKey(value) {
     .replace(/[^a-z0-9]+/g, "");
 }
 
-function meetingForTrack() {
-  if (graph.mode === "race" && state.race?.meeting) return state.race.meeting;
-  return state.dashboard?.nextMeeting || null;
-}
-
-function resolveTrack() {
+function outlineForMeeting(meeting) {
   const data = window.PITWALL_TRACKS;
-  const meeting = meetingForTrack();
   if (!data?.outlines || !data.alias || !meeting) return null;
   const keys = [meeting.circuit, meeting.location, meeting.meetingName];
   let id = null;
@@ -1139,6 +1491,59 @@ function resolveTrack() {
   const outline = [];
   for (let i = 0; i < rec.pts.length; i += 2) outline.push([rec.pts[i], rec.pts[i + 1]]);
   return { id, name: rec.name, location: rec.location, outline };
+}
+
+function resolveTrack() {
+  return outlineForMeeting(meetingForTrack());
+}
+
+function paintNextTrack() {
+  const canvas = $("next-track");
+  if (!canvas) return;
+  const wrap = canvas.parentElement;
+  const width = Math.round(canvas.clientWidth || wrap?.clientWidth || 0);
+  const height = Math.round(canvas.clientHeight || wrap?.clientHeight || 0);
+  if (width < 8 || height < 8) return;
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  if (canvas.width !== Math.round(width * dpr) || canvas.height !== Math.round(height * dpr)) {
+    canvas.width = Math.round(width * dpr);
+    canvas.height = Math.round(height * dpr);
+  }
+  const ctx = canvas.getContext("2d");
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.fillStyle = "#07090d";
+  ctx.fillRect(0, 0, width, height);
+  const track = outlineForMeeting(state.dashboard?.nextMeeting);
+  if (!track) {
+    ctx.fillStyle = "rgba(139, 147, 158, 0.9)";
+    ctx.font = "600 12px Segoe UI, sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("Circuit outline unavailable", width / 2, height / 2);
+    return;
+  }
+  const rx = Math.max(36, Math.min(width * 0.38, height * 0.34));
+  const scale = trackFitScale(track.outline, 0, rx);
+  ctx.save();
+  ctx.translate(width / 2, height / 2 - 8);
+  ctx.lineJoin = "round";
+  ctx.lineCap = "round";
+  trackContourPath(ctx, track.outline, 0, 0, 0, scale, 1);
+  ctx.fillStyle = "rgba(14, 20, 28, 0.92)";
+  ctx.fill();
+  ctx.strokeStyle = "rgba(32, 42, 54, 1)";
+  ctx.lineWidth = 10;
+  ctx.stroke();
+  ctx.strokeStyle = "rgba(210, 224, 232, 0.95)";
+  ctx.lineWidth = 2;
+  ctx.stroke();
+  drawStartFinish(ctx, { x: 0, y: 0, scale, iso: 1, track }, 0);
+  ctx.fillStyle = "rgba(176, 196, 210, 0.9)";
+  ctx.font = "600 11px Segoe UI, sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "alphabetic";
+  ctx.fillText(track.name, 0, rx + 18);
+  ctx.restore();
 }
 
 function rotateTrackPoint(east, north, yaw) {
@@ -1176,14 +1581,14 @@ function sampleTrack(outline, t) {
 }
 
 function plotOrigin() {
-  const usableW = Math.max(160, graph.width - 48);
-  const usableH = Math.max(170, graph.height - 52);
+  const usableW = Math.max(160, graph.width - 148);
+  const usableH = Math.max(160, graph.height - 88);
   const iso = 1;
-  const rx = Math.max(90, Math.min(usableW * 0.46, usableH * 0.46));
+  const rx = Math.max(72, Math.min(usableW * 0.46, usableH * 0.46));
   const track = resolveTrack();
   return {
     x: 0,
-    y: 8,
+    y: 6,
     rx,
     ry: rx * iso,
     iso,
@@ -1255,21 +1660,37 @@ function layoutMountain() {
       distances.push(distances[i - 1] + Math.hypot(points[i].x - points[i - 1].x, points[i].y - points[i - 1].y));
     }
     const available = distances[distances.length - 1] || 1;
-    const span = Math.min(available * 0.58, Math.max((count - 1) * 48, available * 0.28));
+    const start = available * 0.04;
+    const span = available * 0.9;
     const step = count <= 1 ? 0 : span / Math.max(count - 1, 1);
     const center = projectedCentroid(plot.track.outline, plot);
+    const push = 16;
     ranked.forEach((team, index) => {
-      const placed = interpolatePath(points, distances, index * step);
-      const normal = inwardNormal(placed.x, placed.y, placed.tx, placed.ty, center);
-      team.x = placed.x;
-      team.surfaceY = placed.y;
-      team.y = placed.y;
+      const placed = interpolatePath(points, distances, start + index * step);
+      const inward = inwardNormal(placed.x, placed.y, placed.tx, placed.ty, center);
+      const outward = { x: -inward.x, y: -inward.y };
+      team.x = placed.x + outward.x * push;
+      team.surfaceY = placed.y + outward.y * push;
+      team.y = team.surfaceY;
       team.pinH = 0;
       team.angle = Math.atan2(placed.ty, placed.tx);
       team.depth = placed.y;
-      team.labelDx = normal.x;
-      team.labelDy = normal.y;
+      team.labelDx = outward.x;
+      team.labelDy = outward.y;
     });
+    for (let i = 0; i < ranked.length; i += 1) {
+      for (let j = 0; j < i; j += 1) {
+        const a = ranked[i];
+        const b = ranked[j];
+        const dist = Math.hypot(a.x - b.x, a.y - b.y);
+        if (dist >= 26 || dist === 0) continue;
+        const ox = (a.x - b.x) / dist;
+        const oy = (a.y - b.y) / dist;
+        const nudge = 26 - dist;
+        a.x += ox * nudge;
+        a.y += oy * nudge;
+      }
+    }
   } else {
     const span = Math.PI * 0.95;
     ranked.forEach((team, index) => {
@@ -1416,7 +1837,7 @@ function renderNodePanel(node) {
   if (!node || node.kind !== "team") {
     if (meta) meta.textContent = "Tap a constructor pin on the circuit.";
     $("field-heading").textContent = "Constructor";
-    body.innerHTML = `<p class="muted">The left panel swaps between a mixed pack and the constructor you tap.</p>`;
+    body.innerHTML = `<p class="muted">Tap a constructor pin on the circuit. The four-seat pack is on PitWall Battle.</p>`;
     stints.innerHTML = "";
     return;
   }
@@ -1510,20 +1931,14 @@ function syncSelectedNode() {
 }
 
 function handleNodeClick(node) {
-  const open = $("field-drawer")?.classList.contains("is-open");
   if (node && node.kind === "team") {
-    if (open && graph.drawerMode === "node" && graph.selected?.id === node.id) {
-      setFieldDrawerOpen(false);
-    } else {
-      graph.selected = node;
-      setDrawerMode("node");
-    }
+    graph.selected = graph.selected?.id === node.id ? null : node;
   }
   paintGraph();
 }
 
 function setBattleDriver(slot, driverNumber) {
-  if (!state.race || driverNumber == null || driverNumber === "") return;
+  if (!state.battle || driverNumber == null || driverNumber === "") return;
   const select = $(slot === "a" ? "driver-a" : "driver-b");
   if (!select) return;
   select.value = String(driverNumber);
@@ -1570,7 +1985,8 @@ function drawGraph() {
     ctx.stroke();
     ctx.font = "600 11px Segoe UI, sans-serif";
     ctx.fillStyle = "#e8eaed";
-    const label = node.rank && node.rank < 99 ? `${node.short}  P${node.rank}` : node.short;
+    const code = teamAbbrev(node.label || node.short);
+    const label = node.rank && node.rank < 99 ? `${code} P${node.rank}` : code;
     const dx = node.labelDx || 1;
     const dy = node.labelDy || 0;
     ctx.textAlign = Math.abs(dx) < 0.35 ? "center" : dx > 0 ? "left" : "right";
@@ -1581,10 +1997,261 @@ function drawGraph() {
   ctx.restore();
 }
 
+function clearTelemetryFeed() {
+  const driver = $("telemetry-driver");
+  if (driver) {
+    driver.innerHTML = `<option value="">Select a driver</option>`;
+    driver.value = "";
+    driver.disabled = true;
+  }
+  setText("telemetry-pos", "—");
+  const tyre = $("telemetry-tyre");
+  if (tyre) {
+    tyre.textContent = "—";
+    tyre.className = "";
+    tyre.style.removeProperty("--compound");
+  }
+  const throttle = $("telemetry-throttle");
+  const brake = $("telemetry-brake");
+  if (throttle) throttle.innerHTML = "";
+  if (brake) brake.innerHTML = "";
+  const copy = $("graph-copy");
+  if (copy) {
+    copy.classList.remove("sheen-text");
+    copy.textContent = state.race
+      ? "No lap feed for this selection."
+      : "Pick a Grand Prix. Throttle, brake, tyre, and position load with the fastest lap.";
+  }
+}
+
+function compoundColour(compound) {
+  const key = String(compound || "").toUpperCase();
+  if (key === "SOFT") return "#ff2b2b";
+  if (key === "MEDIUM") return "#ffd12e";
+  if (key === "HARD") return "#f4f6f8";
+  if (key === "INTERMEDIATE") return "#43d043";
+  if (key === "WET") return "#3b9dff";
+  return "#9aa3b2";
+}
+
+function renderTelemetryDrivers(drivers) {
+  const select = $("telemetry-driver");
+  if (!select) return;
+  const classified = (drivers || []).filter((driver) => driver.finishPosition != null);
+  const pool = classified.length ? classified : drivers || [];
+  select.innerHTML = pool
+    .map(
+      (driver) =>
+        `<option value="${escapeHtml(driver.driverNumber)}">${escapeHtml(driver.acronym || driver.fullName)}</option>`
+    )
+    .join("");
+  select.disabled = !pool.length;
+  const keep = pool.some((driver) => String(driver.driverNumber) === String(state.telemetryDriver));
+  const next = keep ? state.telemetryDriver : pool[0]?.driverNumber;
+  if (next == null) {
+    clearTelemetryFeed();
+    return;
+  }
+  select.value = String(next);
+  loadTelemetry(next);
+}
+
+function markTelemetryDriver(driverNumber) {
+  state.telemetryDriver = driverNumber == null ? null : String(driverNumber);
+  document.querySelectorAll("#results-chart .standings-row").forEach((row) => {
+    row.classList.toggle("is-selected", row.dataset.driver === state.telemetryDriver);
+  });
+  const select = $("telemetry-driver");
+  if (select && state.telemetryDriver && select.value !== state.telemetryDriver) {
+    select.value = state.telemetryDriver;
+  }
+}
+
+function pedalPath(samples, key) {
+  const usable = (samples || []).filter((sample) => Number.isFinite(sample[key]) && Number.isFinite(sample.t));
+  if (usable.length < 2) return "";
+  const end = usable[usable.length - 1].t || 1;
+  return usable
+    .map((sample, index) => {
+      const x = (sample.t / end) * 100;
+      const y = 26 - (Math.max(0, Math.min(100, sample[key])) / 100) * 22;
+      return `${index === 0 ? "M" : "L"}${x.toFixed(2)} ${y.toFixed(2)}`;
+    })
+    .join(" ");
+}
+
+function renderTelemetry(detail) {
+  const position = $("telemetry-pos");
+  const tyre = $("telemetry-tyre");
+  const copy = $("graph-copy");
+  position.textContent = detail?.position != null ? `P${detail.position}` : "—";
+  const compound = detail?.compound || "—";
+  tyre.textContent = compound;
+  tyre.className = detail?.compound ? "telemetry-tyre" : "";
+  if (detail?.compound) tyre.style.setProperty("--compound", compoundColour(detail.compound));
+  else tyre.style.removeProperty("--compound");
+  const throttle = pedalPath(detail?.samples, "throttle");
+  const brake = pedalPath(detail?.samples, "brake");
+  $("telemetry-throttle").innerHTML = throttle
+    ? `<path d="${throttle}" fill="none" stroke="#f3f5f8" stroke-width="1.6" vector-effect="non-scaling-stroke" />`
+    : "";
+  $("telemetry-brake").innerHTML = brake
+    ? `<path d="${brake}" fill="none" stroke="#ff5a5a" stroke-width="1.6" vector-effect="non-scaling-stroke" />`
+    : "";
+  copy.classList.remove("sheen-text");
+  const lap = detail?.lapNumber != null ? `Fastest lap ${detail.lapNumber}` : "Fastest lap";
+  copy.textContent = `${lap} · ${formatLap(detail?.lapDuration)} · OpenF1 car data`;
+}
+
+async function loadTelemetry(driverNumber) {
+  const sessionKey = state.selectedSessionKey;
+  if (!sessionKey || driverNumber == null || driverNumber === "") return;
+  const seq = state.telemetrySeq + 1;
+  state.telemetrySeq = seq;
+  markTelemetryDriver(driverNumber);
+  const copy = $("graph-copy");
+  copy.classList.add("sheen-text");
+  copy.textContent = "Data coming through, give us a second or two…";
+  const select = $("telemetry-driver");
+  if (select) select.disabled = true;
+  try {
+    const response = await fetch(apiUrl(`/api/race/${sessionKey}/telemetry?driver=${encodeURIComponent(driverNumber)}`));
+    const payload = await response.json().catch(() => ({}));
+    if (seq !== state.telemetrySeq) return;
+    if (!response.ok) throw new Error(payload.error || `Telemetry request failed (${response.status})`);
+    const driver = (state.race?.drivers || []).find((row) => String(row.driverNumber) === String(driverNumber));
+    state.telemetry = {
+      ...payload,
+      teamColour: driver?.teamColour || null,
+    };
+    renderTelemetry(state.telemetry);
+    paintRaceTrack();
+  } catch (err) {
+    if (seq !== state.telemetrySeq) return;
+    state.telemetry = null;
+    copy.classList.remove("sheen-text");
+    copy.textContent = err.message;
+    setText("telemetry-pos", "—");
+    paintRaceTrack();
+  } finally {
+    if (seq === state.telemetrySeq && select) select.disabled = false;
+  }
+}
+
+function meetingForTrack() {
+  if (state.race?.meeting) return state.race.meeting;
+  return state.dashboard?.nextMeeting || null;
+}
+
+function paintRaceTrack() {
+  const canvas = $("grid-canvas");
+  if (!canvas) return;
+  const wrap = canvas.parentElement;
+  const width = Math.round(canvas.clientWidth || wrap?.clientWidth || 0);
+  const height = Math.round(canvas.clientHeight || wrap?.clientHeight || 0);
+  if (width < 8 || height < 8) return;
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  if (canvas.width !== Math.round(width * dpr) || canvas.height !== Math.round(height * dpr)) {
+    canvas.width = Math.round(width * dpr);
+    canvas.height = Math.round(height * dpr);
+  }
+  const ctx = canvas.getContext("2d");
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.fillStyle = "#07090d";
+  ctx.fillRect(0, 0, width, height);
+  const samples = (state.telemetry?.samples || []).filter((sample) => sample.x != null && sample.y != null);
+  if (samples.length >= 2) {
+    drawPedalTrack(ctx, samples, width, height);
+    return;
+  }
+  drawStaticTrack(ctx, width, height, outlineForMeeting(meetingForTrack()));
+}
+
+function drawStaticTrack(ctx, width, height, track) {
+  if (!track) {
+    ctx.fillStyle = "rgba(154, 163, 178, 0.9)";
+    ctx.font = "600 12px Segoe UI, sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("Circuit outline unavailable", width / 2, height / 2);
+    return;
+  }
+  const rx = Math.max(48, Math.min(width * 0.36, height * 0.36));
+  const scale = trackFitScale(track.outline, 0, rx);
+  ctx.save();
+  ctx.translate(width / 2, height / 2);
+  ctx.lineJoin = "round";
+  ctx.lineCap = "round";
+  trackContourPath(ctx, track.outline, 0, 0, 0, scale, 1);
+  ctx.strokeStyle = "rgba(32, 42, 54, 1)";
+  ctx.lineWidth = 10;
+  ctx.stroke();
+  ctx.strokeStyle = "rgba(210, 224, 232, 0.92)";
+  ctx.lineWidth = 2;
+  ctx.stroke();
+  ctx.fillStyle = "rgba(176, 196, 210, 0.9)";
+  ctx.font = "600 12px Segoe UI, sans-serif";
+  ctx.textAlign = "center";
+  ctx.fillText(track.name, 0, -height / 2 + 22);
+  ctx.restore();
+}
+
+function drawPedalTrack(ctx, samples, width, height) {
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let minY = Infinity;
+  let maxY = -Infinity;
+  for (const sample of samples) {
+    minX = Math.min(minX, sample.x);
+    maxX = Math.max(maxX, sample.x);
+    minY = Math.min(minY, sample.y);
+    maxY = Math.max(maxY, sample.y);
+  }
+  const spanX = maxX - minX || 1;
+  const spanY = maxY - minY || 1;
+  const pad = 28;
+  const scale = Math.min((width - pad * 2) / spanX, (height - pad * 2) / spanY);
+  const offsetX = (width - spanX * scale) / 2;
+  const offsetY = (height - spanY * scale) / 2;
+  const point = (sample) => ({
+    x: offsetX + (sample.x - minX) * scale,
+    y: offsetY + (maxY - sample.y) * scale,
+  });
+  ctx.lineJoin = "round";
+  ctx.lineCap = "round";
+  ctx.beginPath();
+  samples.forEach((sample, index) => {
+    const plotted = point(sample);
+    if (index === 0) ctx.moveTo(plotted.x, plotted.y);
+    else ctx.lineTo(plotted.x, plotted.y);
+  });
+  ctx.strokeStyle = "rgba(42, 49, 64, 0.95)";
+  ctx.lineWidth = 7;
+  ctx.stroke();
+  for (let i = 1; i < samples.length; i += 1) {
+    const sample = samples[i];
+    const from = point(samples[i - 1]);
+    const to = point(sample);
+    const braking = Number(sample.brake) >= 50;
+    ctx.beginPath();
+    ctx.moveTo(from.x, from.y);
+    ctx.lineTo(to.x, to.y);
+    ctx.lineWidth = braking ? 4.2 : 3;
+    ctx.strokeStyle = braking ? "rgba(255, 90, 90, 0.95)" : `rgba(243, 245, 248, ${0.35 + 0.6 * ((Number(sample.throttle) || 0) / 100)})`;
+    ctx.stroke();
+  }
+}
+
+function initRaceTrack() {
+  window.addEventListener("resize", paintRaceTrack);
+  const canvas = $("grid-canvas");
+  if (!canvas || typeof ResizeObserver !== "function") return;
+  const observer = new ResizeObserver(() => paintRaceTrack());
+  if (canvas.parentElement) observer.observe(canvas.parentElement);
+}
+
 function schedulePlot() {
-  requestAnimationFrame(resizeGraph);
-  requestAnimationFrame(() => requestAnimationFrame(resizeGraph));
-  setTimeout(resizeGraph, 240);
+  requestAnimationFrame(paintRaceTrack);
 }
 
 function paintGraph() {
@@ -1595,8 +2262,11 @@ function paintGraph() {
 
 function resizeGraph() {
   if (!graph.canvas || !graph.wrap) return false;
-  const width = Math.max(160, Math.round(graph.canvas.clientWidth || graph.wrap.clientWidth));
-  const height = Math.max(360, Math.round(graph.canvas.clientHeight || graph.wrap.clientHeight));
+  const cssW = graph.canvas.clientWidth || graph.wrap.clientWidth;
+  const cssH = graph.canvas.clientHeight || graph.wrap.clientHeight;
+  if (cssW < 8 || cssH < 8) return false;
+  const width = Math.max(120, Math.round(cssW));
+  const height = Math.max(120, Math.round(cssH));
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
   const changed = !(width === graph.width && height === graph.height && dpr === graph.dpr && graph.canvas.width);
   if (changed) {
@@ -1618,9 +2288,7 @@ function updateGraphChrome() {
   if (raceMode) {
     const name = state.race.meeting?.meetingName || "Selected race";
     $("grid-heading").textContent = "Race constructors";
-    $("graph-copy").textContent = `${name} · ${trackBit || state.race.meeting?.circuit || ""} · P1 at start/finish, then finishing order along the circuit. Tap a pin for the constructor split.`
-      .replace(/\s+/g, " ")
-      .trim();
+    $("graph-copy").textContent = `${trackBit || state.race.meeting?.circuit || name}. Pins follow the finishing order. Tap one to highlight it.`;
   } else {
     $("grid-heading").textContent = "Constructor map";
     const next = state.dashboard?.nextMeeting;
@@ -1684,64 +2352,121 @@ function initGraphInteractions() {
   if (canvas.parentElement) plotObserver.observe(canvas.parentElement);
 }
 
-function initPageNav() {
-  const links = [...document.querySelectorAll(".page-nav a")];
-  const sections = links
-    .map((link) => document.querySelector(link.getAttribute("href")))
-    .filter(Boolean);
-  const observer = new IntersectionObserver(
-    (entries) => {
-      const visible = entries
-        .filter((entry) => entry.isIntersecting)
-        .sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
-      if (!visible) return;
-      links.forEach((link) => {
-        link.classList.toggle("is-active", link.getAttribute("href") === `#${visible.target.id}`);
-      });
-    },
-    { rootMargin: "-30% 0px -55% 0px", threshold: [0.15, 0.4, 0.7] }
-  );
-  sections.forEach((section) => observer.observe(section));
+const VIEWS = ["overview", "battle"];
+
+function showView(view, { historyMode = "push" } = {}) {
+  const next = VIEWS.includes(view) ? view : "overview";
+  document.body.dataset.view = next;
+  document.querySelectorAll("[data-stage]").forEach((stage) => {
+    stage.hidden = stage.dataset.stage !== next;
+  });
+  document.querySelectorAll("[data-view-target]").forEach((button) => {
+    const active = button.dataset.viewTarget === next;
+    button.classList.toggle("is-active", active);
+    if (active) button.setAttribute("aria-current", "page");
+    else button.removeAttribute("aria-current");
+  });
+  const nextHash = `#${next}`;
+  if (location.hash !== nextHash) {
+    if (historyMode === "replace") history.replaceState(null, "", nextHash);
+    else history.pushState(null, "", nextHash);
+  }
+  if (next === "overview") requestAnimationFrame(paintNextTrack);
 }
 
-$("season").addEventListener("change", (event) => {
-  const key = event.target.value;
-  if (!key) {
-    showChampionshipMap();
-    return;
+function setNavOpen(open) {
+  document.body.classList.toggle("nav-collapsed", !open);
+  const toggle = $("nav-toggle");
+  if (toggle) {
+    toggle.setAttribute("aria-expanded", open ? "true" : "false");
+    toggle.setAttribute("aria-label", open ? "Collapse navigation" : "Expand navigation");
   }
-  loadRace(key);
+  try {
+    localStorage.setItem("pitwall-nav-open", open ? "1" : "0");
+  } catch (_err) {
+    /* private mode */
+  }
+  if (document.body.dataset.view === "race") schedulePlot();
+  requestAnimationFrame(paintNextTrack);
+}
+
+function initShell() {
+  let open = true;
+  try {
+    if (localStorage.getItem("pitwall-nav-open") === "0") open = false;
+  } catch (_err) {
+    open = true;
+  }
+  setNavOpen(open);
+  $("nav-toggle")?.addEventListener("click", () => {
+    setNavOpen(document.body.classList.contains("nav-collapsed"));
+  });
+  document.querySelectorAll("[data-view-target]").forEach((button) => {
+    button.addEventListener("click", () => showView(button.dataset.viewTarget));
+  });
+  const fromHash = location.hash.replace("#", "");
+  showView(VIEWS.includes(fromHash) ? fromHash : "overview", { historyMode: "replace" });
+  window.addEventListener("hashchange", () => {
+    const view = location.hash.replace("#", "");
+    showView(VIEWS.includes(view) ? view : "overview", { historyMode: "replace" });
+  });
+  const track = $("next-track");
+  if (track?.parentElement && "ResizeObserver" in window) {
+    const observer = new ResizeObserver(() => paintNextTrack());
+    observer.observe(track.parentElement);
+  }
+}
+
+$("compare-add")?.addEventListener("submit", (event) => {
+  event.preventDefault();
+  addCompareCard($("compare-driver")?.value, $("compare-race")?.value);
 });
 
-$("mode-pack").addEventListener("click", () => toggleDrawerMode("pack"));
-$("mode-node").addEventListener("click", () => toggleDrawerMode("node"));
+$("compare-driver")?.addEventListener("change", () => {
+  const note = $("compare-note");
+  if (note && note.textContent === "That driver is already on this Grand Prix.") setCompareNote("");
+  syncCompareAdd();
+});
 
-$("field-close").addEventListener("click", () => setFieldDrawerOpen(false));
+$("compare-race")?.addEventListener("change", () => {
+  const note = $("compare-note");
+  if (note && note.textContent === "That driver is already on this Grand Prix.") setCompareNote("");
+  syncCompareAdd();
+});
+
+$("compare-board")?.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-remove-compare]");
+  if (!button) return;
+  removeCompareCard(button.getAttribute("data-remove-compare"));
+});
+
+$("field-close")?.addEventListener("click", () => setFieldDrawerOpen(false));
 
 fieldSelects().forEach((select, index) => {
   select?.addEventListener("change", () => onFieldSlotChange(index + 1));
 });
 
-$("node-panel").addEventListener("click", (event) => {
+$("node-panel")?.addEventListener("click", (event) => {
   const button = event.target.closest("[data-send-battle]");
   if (!button) return;
   const [driverA, driverB] = button.getAttribute("data-send-battle").split(",");
   setBattleDriver("a", driverA);
   setBattleDriver("b", driverB);
-  $("battle").scrollIntoView({ behavior: "smooth", block: "start" });
+  showView("battle");
 });
 
 document.addEventListener("keydown", (event) => {
   if (event.key !== "Escape") return;
-  if ($("field-drawer").classList.contains("is-open")) {
+  if ($("field-drawer")?.classList.contains("is-open")) {
     setFieldDrawerOpen(false);
+    return;
   }
+  if (!document.body.classList.contains("nav-collapsed")) setNavOpen(false);
 });
 
-$("driver-a").addEventListener("change", renderBattle);
-$("driver-b").addEventListener("change", renderBattle);
+$("driver-a")?.addEventListener("change", renderBattle);
+$("driver-b")?.addEventListener("change", renderBattle);
 
-initGraphInteractions();
-initPageNav();
+initShell();
 state.countdownTimer = setInterval(tickCountdown, 1000);
 loadDashboard();
