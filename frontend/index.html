@@ -4,7 +4,11 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>PitWall — Telemetry board</title>
-    <link rel="stylesheet" href="./styles.css?v=38" />
+    <meta name="theme-color" content="#0f1722" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,300..800&display=swap" />
+    <link rel="stylesheet" href="./styles.css?v=42" />
   </head>
   <body class="is-loading" data-view="overview">
     <a class="skip-link" href="#main">Skip to content</a>
@@ -13,7 +17,7 @@
         <div class="drawer-brand">
           <span class="nav-mark" aria-hidden="true">PW</span>
           <div class="brand-copy">
-            <h1>PITWALL</h1>
+            <h1>PitWall</h1>
             <p class="eyebrow">Telemetry board</p>
           </div>
           <button type="button" class="nav-toggle" id="nav-toggle" aria-expanded="true" aria-controls="view-nav" aria-label="Collapse navigation">
@@ -36,7 +40,7 @@
             <svg class="nav-icon" viewBox="0 0 18 18" aria-hidden="true">
               <path d="M4 15 V7 M9 15 V3 M14 15 V9" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
             </svg>
-            <span class="nav-label">PitWall battle</span>
+            <span class="nav-label">Compare drivers</span>
           </button>
         </nav>
         <div class="drawer-foot">
@@ -44,7 +48,7 @@
             <span class="skeleton skeleton-text skeleton-text-wide" aria-hidden="true"></span>
             <span class="sr-only">Loading snapshot…</span>
           </div>
-          <p class="source-note">Source: OpenF1. Championship endpoints are beta. Overtake counts may be incomplete.</p>
+          <p class="source-note">Data from OpenF1. Championship figures are in beta. Unofficial fan project.</p>
         </div>
       </aside>
 
@@ -74,19 +78,19 @@
                   <p class="meeting-circuit" id="meeting-circuit">
                     <span class="skeleton skeleton-text skeleton-text-narrow" aria-hidden="true"></span>
                   </p>
-                  <div class="countdown" id="countdown" aria-label="Countdown to next Grand Prix">
-                    <div class="count-block"><span id="cd-d">00</span><label>Days</label></div>
-                    <div class="count-block"><span id="cd-h">00</span><label>Hrs</label></div>
-                    <div class="count-block"><span id="cd-m">00</span><label>Min</label></div>
-                    <div class="count-block"><span id="cd-s">00</span><label>Sec</label></div>
+                  <div class="countdown" id="countdown" role="timer" aria-label="Time until the first session">
+                    <div class="count-block"><span id="cd-d">00</span><small>days</small></div>
+                    <div class="count-block"><span id="cd-h">00</span><small>hrs</small></div>
+                    <div class="count-block"><span id="cd-m">00</span><small>min</small></div>
+                    <div class="count-block is-seconds"><span id="cd-s">00</span><small>sec</small></div>
                   </div>
                   <div class="table-wrap" aria-label="Session schedule">
                     <table>
                       <thead>
                         <tr>
                           <th>Session</th>
-                          <th>Start (UTC)</th>
-                          <th>End (UTC)</th>
+                          <th>Starts (UTC)</th>
+                          <th>Ends (UTC)</th>
                         </tr>
                       </thead>
                       <tbody id="schedule-body">
@@ -97,9 +101,7 @@
                     </table>
                   </div>
                 </div>
-                <div class="next-track-wrap">
-                  <canvas id="next-track" aria-label="Next Grand Prix circuit outline"></canvas>
-                </div>
+                <div class="next-track-wrap" id="next-track"></div>
               </div>
             </section>
 
@@ -118,7 +120,10 @@
             </section>
 
             <section class="tile tile-drivers" id="standings" aria-labelledby="drivers-heading">
-              <h2 id="drivers-heading">Driver championship</h2>
+              <div class="panel-head">
+                <h2 id="drivers-heading">Drivers’ championship</h2>
+                <p class="panel-meta" id="drivers-meta"></p>
+              </div>
               <div class="standings" id="drivers-chart" aria-label="Driver championship points">
                 <div class="skeleton-chart" aria-hidden="true">
                   <div class="skeleton skeleton-bar"></div>
@@ -132,7 +137,7 @@
             </section>
 
             <section class="tile tile-teams" aria-labelledby="teams-heading">
-              <h2 id="teams-heading">Constructor championship</h2>
+              <h2 id="teams-heading">Constructors’ championship</h2>
               <div class="standings" id="teams-chart" aria-label="Constructor championship points">
                 <div class="skeleton-chart" aria-hidden="true">
                   <div class="skeleton skeleton-bar"></div>
@@ -151,8 +156,8 @@
           <section class="tile tile-battle" id="battle" aria-labelledby="battle-heading">
             <div class="panel-head">
               <div>
-                <h2 id="battle-heading">PitWall Battle</h2>
-                <p class="panel-meta" id="battle-meta">Add a driver and the Grand Prix they drove.</p>
+                <h2 id="battle-heading">Compare drivers</h2>
+                <p class="panel-meta" id="battle-meta">Line up to six drivers from any race this season.</p>
               </div>
             </div>
             <form class="compare-add" id="compare-add">
@@ -168,16 +173,16 @@
                   <option value="">No completed race</option>
                 </select>
               </label>
-              <button type="submit" id="compare-add-btn" disabled>Add</button>
+              <button type="submit" id="compare-add-btn" disabled>Add to grid</button>
             </form>
             <p class="compare-note" id="compare-note" hidden></p>
-            <p class="empty-hint" id="compare-empty">Pick a driver and a Grand Prix.</p>
+            <p class="empty-hint" id="compare-empty">Pick a driver and a Grand Prix, then add them to the grid.</p>
             <div class="compare-board" id="compare-board" hidden></div>
           </section>
         </div>
       </main>
     </div>
     <script src="./tracks.js?v=32"></script>
-    <script src="./app.js?v=34"></script>
+    <script src="./app.js?v=43"></script>
   </body>
 </html>

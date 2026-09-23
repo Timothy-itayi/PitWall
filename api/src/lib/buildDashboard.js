@@ -36,6 +36,37 @@ function displayName(driver, driverNumber) {
   return driver.full_name || driver.broadcast_name || `Driver #${driverNumber}`;
 }
 
+function isIdentifiedOpenF1Driver(driver) {
+  return Boolean(driver && (driver.full_name || driver.broadcast_name) && driver.team_name);
+}
+
+function isGhostChampionshipDriver(row) {
+  const name = String(row?.fullName || "").trim();
+  if (!name || /^driver\s*#\d+$/i.test(name)) return true;
+  return !row.teamName;
+}
+
+function compactPositions(rows) {
+  return rows.map((row, index) => ({ ...row, position: index + 1 }));
+}
+
+function sanitizeDashboardSnapshot(snapshot) {
+  if (!snapshot || typeof snapshot !== "object") return snapshot;
+  const driverChampionship = compactPositions(
+    (snapshot.driverChampionship || []).filter((row) => !isGhostChampionshipDriver(row))
+  );
+  const teamChampionship = compactPositions(
+    (snapshot.teamChampionship || []).filter((row) => row && row.teamName)
+  );
+  const latestRace = snapshot.latestRace
+    ? {
+        ...snapshot.latestRace,
+        top3: (snapshot.latestRace.top3 || []).filter((row) => !isGhostChampionshipDriver(row)),
+      }
+    : snapshot.latestRace;
+  return { ...snapshot, driverChampionship, teamChampionship, latestRace };
+}
+
 function normalizeTeamColour(value) {
   const hex = String(value || "").replace(/^#/, "").toUpperCase();
   return /^[0-9A-F]{6}$/.test(hex) ? hex : null;
@@ -121,7 +152,7 @@ function previousRaces(sessions, meetings, now) {
 function latestRaceResult(results, drivers) {
   const driversByNumber = driverMap(drivers);
   return [...results]
-    .filter((row) => row.position != null)
+    .filter((row) => row.position != null && isIdentifiedOpenF1Driver(driversByNumber.get(row.driver_number)))
     .sort((a, b) => a.position - b.position)
     .slice(0, 3)
     .map((row) => {
@@ -139,31 +170,37 @@ function latestRaceResult(results, drivers) {
 
 function normalizeDriverChampionship(rows, drivers) {
   const driversByNumber = driverMap(drivers);
-  return [...rows]
-    .sort((a, b) => (a.position_current || 99) - (b.position_current || 99))
-    .map((row) => {
-      const driver = driversByNumber.get(row.driver_number);
-      return {
-        position: row.position_current,
-        driverNumber: row.driver_number,
-        fullName: displayName(driver, row.driver_number),
-        acronym: driver?.name_acronym || null,
-        teamName: driver?.team_name || null,
-        teamColour: colourFromDriver(driver),
-        points: row.points_current,
-      };
-    });
+  return compactPositions(
+    [...rows]
+      .filter((row) => isIdentifiedOpenF1Driver(driversByNumber.get(row.driver_number)))
+      .sort((a, b) => (a.position_current || 99) - (b.position_current || 99))
+      .map((row) => {
+        const driver = driversByNumber.get(row.driver_number);
+        return {
+          position: row.position_current,
+          driverNumber: row.driver_number,
+          fullName: displayName(driver, row.driver_number),
+          acronym: driver?.name_acronym || null,
+          teamName: driver?.team_name || null,
+          teamColour: colourFromDriver(driver),
+          points: row.points_current,
+        };
+      })
+  );
 }
 
 function normalizeTeamChampionship(rows, drivers) {
-  return [...rows]
-    .sort((a, b) => (a.position_current || 99) - (b.position_current || 99))
-    .map((row) => ({
-      position: row.position_current,
-      teamName: row.team_name,
-      teamColour: colourFromTeamName(row.team_name, drivers),
-      points: row.points_current,
-    }));
+  return compactPositions(
+    [...rows]
+      .filter((row) => row && row.team_name)
+      .sort((a, b) => (a.position_current || 99) - (b.position_current || 99))
+      .map((row) => ({
+        position: row.position_current,
+        teamName: row.team_name,
+        teamColour: colourFromTeamName(row.team_name, drivers),
+        points: row.points_current,
+      }))
+  );
 }
 
 async function buildDashboardSnapshot(log = console) {
@@ -227,4 +264,5 @@ async function buildDashboardSnapshot(log = console) {
 
 module.exports = {
   buildDashboardSnapshot,
+  sanitizeDashboardSnapshot,
 };

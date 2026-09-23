@@ -189,8 +189,8 @@ function renderFreshness(dashboard) {
   const stamp = formatDate(dashboard.generatedAt);
   node.classList.toggle("stale", Boolean(dashboard.stale));
   node.innerHTML = dashboard.stale
-    ? `Data last refreshed: ${escapeHtml(stamp)}<br>Latest upstream refresh unavailable — showing last known data.`
-    : `Data last refreshed: ${escapeHtml(stamp)}`;
+    ? `<span class="freshness-line">Updated ${escapeHtml(stamp)}</span><span class="freshness-note">OpenF1 refresh failed. Showing the last good snapshot.</span>`
+    : `<span class="freshness-line">Updated ${escapeHtml(stamp)}</span>`;
 }
 
 function renderBarChart(container, rows, { ariaLabel } = {}) {
@@ -234,7 +234,8 @@ function renderNextMeeting(meeting) {
 
   setText("meeting-name", meeting.meetingName);
   setText("meeting-place", [meeting.location, meeting.country].filter(Boolean).join(", "));
-  setText("meeting-circuit", meeting.circuit || "");
+  const circuit = meeting.circuit || "";
+  setText("meeting-circuit", normalizeTrackKey(circuit) === normalizeTrackKey(meeting.location) ? "" : circuit);
   setText("next-gp-meta", `${formatDay(meeting.dateStart)} – ${formatDay(meeting.dateEnd)}`);
   state.countdownTarget = countdownTarget(meeting);
   tickCountdown();
@@ -254,66 +255,91 @@ function renderNextMeeting(meeting) {
     : `<tr><td colspan="3">No sessions published for this meeting.</td></tr>`;
 }
 
+function splitName(fullName) {
+  const parts = String(fullName || "").trim().split(/\s+/);
+  if (parts.length < 2) return { first: "", last: parts[0] || "" };
+  return { first: parts.slice(0, -1).join(" "), last: parts[parts.length - 1] };
+}
+
 function renderLatestRace(race) {
   const podium = $("podium");
   if (!race) {
     setText("latest-meta", "");
-    podium.innerHTML = `<li><span class="name">No completed Grand Prix yet.</span></li>`;
+    podium.innerHTML = `<li class="podium-empty">No completed Grand Prix yet.</li>`;
     return;
   }
-  setText("latest-meta", `${race.meetingName} · ${formatDate(race.date)}`);
+  setText("latest-meta", `${race.meetingName}, ${formatDay(race.date)}`);
   const top3 = race.top3 || [];
   podium.innerHTML = top3.length
     ? top3
         .map((row) => {
           const colour = teamColour(row.teamColour, row.teamName);
+          const { first, last } = splitName(row.fullName);
           return `
             <li style="--team:${escapeHtml(colour)}">
-              <span class="pos">P${escapeHtml(row.position)}</span>
-              <span class="name">${escapeHtml(row.fullName)}</span>
-              <span class="team"><span class="team-pip" style="background:${escapeHtml(colour)}"></span>${escapeHtml(row.teamName || "")}</span>
+              <span class="pos"><span class="sr-only">Position </span>${escapeHtml(row.position)}</span>
+              <span class="name"><span class="first">${escapeHtml(first)}</span> <span class="last">${escapeHtml(last)}</span></span>
+              <span class="team">${escapeHtml(row.teamName || "")}</span>
             </li>`;
         })
         .join("")
-    : `<li><span class="name">Results not published yet.</span></li>`;
+    : `<li class="podium-empty">Results not published yet.</li>`;
 }
 
-function renderStandings(container, rows, ariaLabel) {
+function standingsRowMarkup(row, leader, { extra = "" } = {}) {
+  const colour = teamColour(row.colour, row.teamName);
+  const detail = row.detail ? `<span class="standings-secondary">${escapeHtml(row.detail)}</span>` : "";
+  return `
+    <li class="standings-row${Number(row.position) === 1 ? " is-leader" : ""}" style="--team:${escapeHtml(colour)}">
+      <span class="standings-pos">${escapeHtml(row.position ?? "")}</span>
+      <span class="standings-name" title="${escapeHtml(row.name)}">
+        <span class="team-pip" style="background:${escapeHtml(colour)}"></span>
+        <span class="standings-primary">${escapeHtml(row.shortName || row.name)}</span>
+        ${detail}
+      </span>
+      ${extra}
+      <span class="standings-pts">${escapeHtml(formatPoints(row.points))}</span>
+      <span class="standings-gap">${escapeHtml(formatGap(leader, row.points))}</span>
+    </li>`;
+}
+
+// Standings as one or more columns. Long lists split so the whole field
+// fits the tile with no scrolling.
+function renderStandings(container, rows, ariaLabel, { columns = 1, head = ["Pos", "Driver", "Pts", "Gap"], extra } = {}) {
   if (!container) return;
-  container.classList.remove("chart");
   container.classList.add("standings");
-  container.removeAttribute("role");
   if (ariaLabel) container.setAttribute("aria-label", ariaLabel);
   if (!rows.length) {
     container.innerHTML = `<p class="stint-empty">No championship data.</p>`;
     return;
   }
   const leader = Number(rows[0]?.points);
-  container.innerHTML = `
-    <div class="standings-head" aria-hidden="true"><span>P</span><span>Name</span><span>Pts</span><span>Gap</span></div>
-    <ol class="standings-list">
-      ${rows
-        .map((row) => {
-          const colour = teamColour(row.colour, row.teamName);
-          const detail = row.detail ? `<span class="standings-secondary">${escapeHtml(row.detail)}</span>` : "";
-          return `
-            <li class="standings-row">
-              <span class="standings-pos">${escapeHtml(row.position ?? "")}</span>
-              <span class="standings-name" title="${escapeHtml(row.name)}">
-                <span class="team-pip" style="background:${escapeHtml(colour)}"></span>
-                <span class="standings-primary">${escapeHtml(row.shortName || row.name)}</span>
-                ${detail}
-              </span>
-              <span class="standings-pts">${escapeHtml(formatPoints(row.points))}</span>
-              <span class="standings-gap">${escapeHtml(formatGap(leader, row.points))}</span>
-            </li>`;
-        })
-        .join("")}
-    </ol>`;
+  const perColumn = Math.ceil(rows.length / columns);
+  const chunks = [];
+  for (let i = 0; i < rows.length; i += perColumn) chunks.push(rows.slice(i, i + perColumn));
+  container.style.setProperty("--rows", perColumn);
+  container.innerHTML = chunks
+    .map(
+      (chunk, index) => `
+      <div class="standings-col">
+        <div class="standings-head" aria-hidden="true">${head.map((label) => `<span>${escapeHtml(label)}</span>`).join("")}</div>
+        <ol class="standings-list" start="${index * perColumn + 1}">
+          ${chunk.map((row) => standingsRowMarkup(row, leader, { extra: extra ? extra(row) : "" })).join("")}
+        </ol>
+      </div>`
+    )
+    .join("");
 }
 
 function renderChampionships(dashboard) {
   const drivers = dashboard.driverChampionship || [];
+  const meta = $("drivers-meta");
+  if (meta) {
+    const [lead, second] = drivers;
+    const margin = lead && second ? (Number(lead.points) || 0) - (Number(second.points) || 0) : null;
+    meta.textContent =
+      margin == null ? "" : margin === 0 ? "Level on points at the top" : `${lead.acronym || lead.fullName} leads by ${formatPoints(margin)}`;
+  }
   renderStandings(
     $("drivers-chart"),
     drivers.map((row) => ({
@@ -325,7 +351,8 @@ function renderChampionships(dashboard) {
       colour: row.teamColour,
       points: row.points,
     })),
-    "Driver championship points"
+    "Driver championship points",
+    { columns: drivers.length > 12 ? 2 : 1 }
   );
 
   const teams = dashboard.teamChampionship || [];
@@ -339,7 +366,8 @@ function renderChampionships(dashboard) {
       colour: row.teamColour,
       points: row.points,
     })),
-    "Constructor championship points"
+    "Constructor championship points",
+    { head: ["Pos", "Team", "Pts", "Gap"] }
   );
 }
 
@@ -939,13 +967,34 @@ function renderTimeline(events) {
     .join("");
 }
 
+function isRosterDriver(row) {
+  if (!row || row.driverNumber == null) return false;
+  const name = String(row.fullName || "").trim();
+  if (!name || /^driver\s*#\d+$/i.test(name)) return false;
+  return Boolean(row.teamName);
+}
+
+function sanitizeDashboard(dashboard) {
+  if (!dashboard) return dashboard;
+  const driverChampionship = (dashboard.driverChampionship || [])
+    .filter(isRosterDriver)
+    .map((row, index) => ({ ...row, position: index + 1 }));
+  const teamChampionship = (dashboard.teamChampionship || [])
+    .filter((row) => row && row.teamName)
+    .map((row, index) => ({ ...row, position: index + 1 }));
+  const latestRace = dashboard.latestRace
+    ? { ...dashboard.latestRace, top3: (dashboard.latestRace.top3 || []).filter(isRosterDriver) }
+    : dashboard.latestRace;
+  return { ...dashboard, driverChampionship, teamChampionship, latestRace };
+}
+
 function renderDashboard(dashboard) {
-  state.dashboard = dashboard;
-  renderFreshness(dashboard);
-  renderNextMeeting(dashboard.nextMeeting);
-  renderLatestRace(dashboard.latestRace);
-  renderChampionships(dashboard);
-  renderSeason(dashboard.previousRaces || []);
+  state.dashboard = sanitizeDashboard(dashboard);
+  renderFreshness(state.dashboard);
+  renderNextMeeting(state.dashboard.nextMeeting);
+  renderLatestRace(state.dashboard.latestRace);
+  renderChampionships(state.dashboard);
+  renderSeason(state.dashboard.previousRaces || []);
   renderFieldOptions();
   renderCompareDrivers();
   setPageLoading(false);
@@ -956,6 +1005,7 @@ function setRaceLoading(loading, message) {
   const skeleton = $("race-skeleton");
   const body = $("race-body");
   const status = $("race-status");
+  if (!skeleton || !body || !status) return;
   skeleton.hidden = !loading;
   body.hidden = loading;
   status.classList.toggle("sheen-text", Boolean(loading && message));
@@ -971,6 +1021,7 @@ function setRaceLoading(loading, message) {
 }
 
 async function loadRace(sessionKey) {
+  if (!$("race-empty") || !$("race-detail-heading") || !$("race-detail-meta")) return;
   state.selectedSessionKey = sessionKey;
   state.raceLoadingKey = sessionKey;
   renderSeason(state.dashboard?.previousRaces || []);
@@ -1231,6 +1282,7 @@ function removeCompareCard(id) {
 }
 
 function showChampionshipMap() {
+  if (!$("race-empty")) return;
   state.selectedSessionKey = null;
   state.race = null;
   state.raceLoadingKey = null;
@@ -1498,52 +1550,46 @@ function resolveTrack() {
 }
 
 function paintNextTrack() {
-  const canvas = $("next-track");
-  if (!canvas) return;
-  const wrap = canvas.parentElement;
-  const width = Math.round(canvas.clientWidth || wrap?.clientWidth || 0);
-  const height = Math.round(canvas.clientHeight || wrap?.clientHeight || 0);
-  if (width < 8 || height < 8) return;
-  const dpr = Math.min(window.devicePixelRatio || 1, 2);
-  if (canvas.width !== Math.round(width * dpr) || canvas.height !== Math.round(height * dpr)) {
-    canvas.width = Math.round(width * dpr);
-    canvas.height = Math.round(height * dpr);
-  }
-  const ctx = canvas.getContext("2d");
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  ctx.fillStyle = "#07090d";
-  ctx.fillRect(0, 0, width, height);
+  const host = $("next-track");
+  if (!host) return;
   const track = outlineForMeeting(state.dashboard?.nextMeeting);
+  const key = track ? track.id : "none";
+  if (host.dataset.track === key && host.firstElementChild) return;
+  host.dataset.track = key;
   if (!track) {
-    ctx.fillStyle = "rgba(139, 147, 158, 0.9)";
-    ctx.font = "600 12px Segoe UI, sans-serif";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillText("Circuit outline unavailable", width / 2, height / 2);
+    host.innerHTML = state.dashboard ? `<p class="track-missing">No circuit map for this venue.</p>` : "";
     return;
   }
-  const rx = Math.max(36, Math.min(width * 0.38, height * 0.34));
-  const scale = trackFitScale(track.outline, 0, rx);
-  ctx.save();
-  ctx.translate(width / 2, height / 2 - 8);
-  ctx.lineJoin = "round";
-  ctx.lineCap = "round";
-  trackContourPath(ctx, track.outline, 0, 0, 0, scale, 1);
-  ctx.fillStyle = "rgba(14, 20, 28, 0.92)";
-  ctx.fill();
-  ctx.strokeStyle = "rgba(32, 42, 54, 1)";
-  ctx.lineWidth = 10;
-  ctx.stroke();
-  ctx.strokeStyle = "rgba(210, 224, 232, 0.95)";
-  ctx.lineWidth = 2;
-  ctx.stroke();
-  drawStartFinish(ctx, { x: 0, y: 0, scale, iso: 1, track }, 0);
-  ctx.fillStyle = "rgba(176, 196, 210, 0.9)";
-  ctx.font = "600 11px Segoe UI, sans-serif";
-  ctx.textAlign = "center";
-  ctx.textBaseline = "alphabetic";
-  ctx.fillText(track.name, 0, rx + 18);
-  ctx.restore();
+  // Fit the outline into a 400 x 300 box; the SVG scales itself after that.
+  const W = 400;
+  const H = 300;
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  const pts = track.outline.map(([east, north]) => {
+    const p = rotateTrackPoint(east, north, 0);
+    minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x);
+    minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y);
+    return p;
+  });
+  const pad = 26;
+  const scale = Math.min((W - pad * 2) / (maxX - minX || 1), (H - pad * 2) / (maxY - minY || 1));
+  const ox = (W - (maxX - minX) * scale) / 2 - minX * scale;
+  const oy = (H - (maxY - minY) * scale) / 2 - minY * scale;
+  const xy = pts.map((p) => [ox + p.x * scale, oy + p.y * scale]);
+  const d = `M${xy.map(([x, y]) => `${x.toFixed(1)} ${y.toFixed(1)}`).join("L")}Z`;
+  // Start / finish line, perpendicular to the first segment.
+  const [ax, ay] = xy[0];
+  const [bx, by] = xy[1];
+  const len = Math.hypot(bx - ax, by - ay) || 1;
+  const nx = (-(by - ay) / len) * 9;
+  const ny = ((bx - ax) / len) * 9;
+  host.innerHTML = `
+    <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${escapeHtml(track.name)} layout">
+      <path class="track-ribbon" d="${d}" />
+      <path class="track-line" d="${d}" />
+      <path class="track-light" d="${d}" pathLength="1000" />
+      <line class="track-start" x1="${(ax + nx).toFixed(1)}" y1="${(ay + ny).toFixed(1)}" x2="${(ax - nx).toFixed(1)}" y2="${(ay - ny).toFixed(1)}" />
+    </svg>
+    <p class="track-name">${escapeHtml(track.name)}</p>`;
 }
 
 function rotateTrackPoint(east, north, yaw) {

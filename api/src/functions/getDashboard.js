@@ -1,6 +1,7 @@
 const { app } = require("@azure/functions");
 const { readDashboard } = require("../lib/cache");
 const { refreshDashboard } = require("../lib/refresh");
+const { sanitizeDashboardSnapshot } = require("../lib/buildDashboard");
 
 const STALE_MS = Number(process.env.DASHBOARD_STALE_MS) || 12 * 60 * 60 * 1000;
 
@@ -32,7 +33,7 @@ app.http("getDashboard", {
     return {
       status: 200,
       headers: jsonHeaders,
-      jsonBody: { ...snapshot, stale },
+      jsonBody: { ...sanitizeDashboardSnapshot(snapshot), stale },
     };
   },
 });
