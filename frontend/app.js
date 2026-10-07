@@ -1353,7 +1353,9 @@ function renderDuel({ animate = true } = {}) {
   if (!chart || !stats) return;
   const progression = state.dashboard?.pointsProgression;
   const pool = duelPool();
-  if (!progression || pool.length < 2) {
+  const available = Boolean(progression) && pool.length >= 2;
+  chart.closest(".season-duel")?.classList.toggle("is-unavailable", Boolean(state.dashboard) && !available);
+  if (!available) {
     stats.innerHTML = "";
     chart.innerHTML = `<p class="empty-hint">${
       state.dashboard ? "Season history shows up after the next data refresh." : "Loading season history…"

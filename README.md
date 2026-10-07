@@ -1,6 +1,6 @@
 # PitWall — F1 Race & Season Intelligence
 
-Live: [https://jolly-mud-0b0e27600.5.azurestaticapps.net](https://jolly-mud-0b0e27600.5.azurestaticapps.net)
+Live: [https://www.deltaboard.win](https://www.deltaboard.win)
 
 PitWall is a serverless Formula 1 dashboard on Azure, backed by historical OpenF1 data. The browser never calls OpenF1. Visitors read a Function API that serves a private Blob cache.
 

@@ -9,7 +9,7 @@ PitWall is a public read-only site in front of a private cache. The security mod
 - In Azure, the Function App uses a system-assigned managed identity (`CACHE_ACCOUNT_URL` + `DefaultAzureCredential`). Connection strings stay in local Azurite settings, which are gitignored.
 - `POST /api/refresh` requires a Function key. There is no anonymous force-refresh.
 - `GET /api/race/{sessionKey}` rejects anything that is not a positive integer.
-- Function CORS is restricted to the Static Web App origin. It is an Azure Function App setting, not application code.
+- Function CORS is restricted to the site origins: `https://www.deltaboard.win`, `https://deltaboard.win`, and the default Static Web App hostname. It is an Azure Function App setting, not application code. A new custom domain must be added there (`az functionapp cors add`) or the browser blocks every API call.
 - `frontend/app.js` escapes values before inserting them into HTML. OpenF1 strings are treated as untrusted.
 
 ## What is intentionally public

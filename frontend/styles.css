@@ -957,6 +957,20 @@ td:first-child {
   height: 260px;
 }
 
+/* No history in the snapshot: hide the pickers and collapse the chart box. */
+.season-duel.is-unavailable .duel-pickers {
+  display: none;
+}
+
+.season-duel.is-unavailable .duel-chart {
+  height: auto;
+  margin-top: 12px;
+}
+
+.season-duel.is-unavailable .empty-hint {
+  padding: 20px 16px;
+}
+
 .duel-chart svg {
   display: block;
   overflow: visible;

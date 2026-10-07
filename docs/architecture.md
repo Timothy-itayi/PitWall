@@ -70,7 +70,7 @@ return   OpenF1
 
 Azure Static Web Apps managed functions support HTTP triggers only. PitWall needs a timer trigger, so the Function App is a standalone resource.
 
-The frontend therefore calls the Function App hostname directly (`https://func-pitwall-fd884b.azurewebsites.net` in production). CORS on that Function App is restricted to the Static Web App origin.
+The frontend therefore calls the Function App hostname directly (`https://func-pitwall-fd884b.azurewebsites.net` in production). CORS on that Function App is restricted to the site origins (`www.deltaboard.win`, `deltaboard.win`, and the default Static Web App hostname).
 
 A Static Web Apps bring-your-own-backend link would require the SWA Standard plan. The Free SKU plus an explicit Function origin is the cheaper, clearer split for this application.
 
