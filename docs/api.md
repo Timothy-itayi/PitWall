@@ -49,14 +49,31 @@ Shape (fields the frontend actually consumes):
   "previousRaces": [],
   "pointsProgression": {
     "rounds": [{ "round": 1, "sessionKey": 11234, "meetingName": "Australian Grand Prix", "date": "2026-03-08T06:00:00+00:00" }],
-    "drivers": [{ "driverNumber": 12, "points": [18, 47, 72] }]
+    "drivers": [
+      {
+        "driverNumber": 12,
+        "points": [18, 47, 72],
+        "finish": [2, 1, 1],
+        "status": [null, null, "DNF"],
+        "racePoints": [18, 25, 0],
+        "qualifying": [2, 1, 1]
+      }
+    ]
   }
 }
 ```
 
 `previousRaces` is every completed, non-cancelled current-season session whose `session_name` is `Race`, newest first. No lap telemetry is stored here.
 
-`pointsProgression` is cumulative championship points after each completed Grand Prix, oldest first, for every driver in `driverChampionship`. `points[i]` lines up with `rounds[i]`, and `null` means the driver had no row for that round. It is `null` when there is no completed race, or when building the history failed. The rest of the snapshot still ships in that case.
+`pointsProgression` is the season series behind the Compare page head-to-head, oldest round first, for every driver in `driverChampionship`. Every array lines up with `rounds[i]`:
+
+- `points`: cumulative championship points after that round (sprints included)
+- `finish`: race classification position (a classified DNF can still have one)
+- `status`: `"DNF"`, `"DNS"`, `"DSQ"`, or `null` when the driver finished
+- `racePoints`: points from the Grand Prix itself
+- `qualifying`: position in that weekend's Qualifying session (not Sprint Qualifying)
+
+`null` means the driver had no row for that round. It is `null` when there is no completed race, or when building the history failed. The rest of the snapshot still ships in that case.
 
 ## `GET /api/race/{sessionKey}`
 

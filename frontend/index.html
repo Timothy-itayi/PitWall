@@ -8,7 +8,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,300..800&display=swap" />
-    <link rel="stylesheet" href="./styles.css?v=46" />
+    <link rel="stylesheet" href="./styles.css?v=47" />
   </head>
   <body class="is-loading" data-view="overview">
     <a class="skip-link" href="#main">Skip to content</a>
@@ -177,11 +177,17 @@
                   </label>
                 </div>
               </div>
-              <dl class="duel-stats" id="duel-stats"></dl>
-              <div class="duel-chart" id="duel-chart">
-                <div class="skeleton duel-skeleton" aria-hidden="true"></div>
+              <div class="duel-body">
+                <div class="duel-tape" id="duel-stats" role="group" aria-label="Season comparison"></div>
+                <div class="duel-chart-wrap">
+                  <p class="duel-chart-title">Championship points by round</p>
+                  <div class="duel-chart" id="duel-chart">
+                    <div class="skeleton duel-skeleton" aria-hidden="true"></div>
+                  </div>
+                  <div class="duel-tip" id="duel-tip" role="status" hidden></div>
+                </div>
               </div>
-              <div class="duel-tip" id="duel-tip" role="status" hidden></div>
+              <div class="duel-rounds" id="duel-rounds"></div>
             </section>
             <h3 class="section-label race-label">Race by race</h3>
             <form class="compare-add" id="compare-add">
@@ -208,6 +214,6 @@
     </div>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.13.0/gsap.min.js" integrity="sha384-HOvlOYPIs/zjoIkWUGXkVmXsjr8GuZLV+Q+rcPwmJOVZVpvTSXQChiN4t9Euv9Vc" crossorigin="anonymous"></script>
     <script src="./tracks.js?v=32"></script>
-    <script src="./app.js?v=47"></script>
+    <script src="./app.js?v=48"></script>
   </body>
 </html>

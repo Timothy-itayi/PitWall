@@ -41,10 +41,10 @@ PitWall normalizes OpenF1 once, writes the result to Blob Storage, and serves th
 | --- | --- | --- | --- |
 | `dashboard.json` | Timer `refreshOpenF1` (and key-protected `POST /api/refresh`) | `GET /api/dashboard` | Scheduled. Every 6 hours at minute 15 (`0 15 */6 * * *`). |
 | `races/<sessionKey>.json` | `GET /api/race/{sessionKey}` on cache miss | Same HTTP function | Cache-aside. Built only when a visitor opens a race. |
-| `championship/<sessionKey>.json` | Dashboard refresh, first time it needs that round | Dashboard refresh | Per round, written once. The newest round is always re-read from OpenF1, so only a new race costs a request. |
+| `season-rounds/<sessionKey>.json` | Dashboard refresh, first time it needs that round | Dashboard refresh | Per round: standings, race result and qualifying result, written once (versioned, so a shape change rebuilds them). The newest round is always rebuilt, so a normal refresh costs one extra request. |
 | `races/<sessionKey>/telemetry/<driver>.json` | `GET /api/race/{sessionKey}/telemetry?driver=` on cache miss | Same style of HTTP function | One driver, fastest timed lap. Not the full `car_data` stream. |
 
-The dashboard snapshot is deliberately small: next meeting, podium, standings, a list of completed races, and cumulative points per round (about 3 KB for a full season). Lap, stint, pit, overtake, and race-control datasets stay out of the scheduled refresh.
+The dashboard snapshot is deliberately small: next meeting, podium, standings, a list of completed races, and per-round season series for the head-to-head (about 9 KB for a full season). Lap, stint, pit, overtake, and race-control datasets stay out of the scheduled refresh.
 
 ```text
 select race

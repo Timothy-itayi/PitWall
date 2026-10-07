@@ -501,17 +501,17 @@ th {
   font-weight: 500;
 }
 
-th:nth-child(2),
-td:nth-child(2) {
+.table-wrap th:nth-child(2),
+.table-wrap td:nth-child(2) {
   text-align: right;
 }
 
-th:nth-child(3),
-td:nth-child(3) {
+.table-wrap th:nth-child(3),
+.table-wrap td:nth-child(3) {
   display: none;
 }
 
-tbody tr:last-child td {
+.table-wrap tbody tr:last-child td {
   color: var(--text);
   font-weight: 650;
 }
@@ -911,39 +911,173 @@ td:first-child {
   font-size: 0.8rem;
 }
 
-.duel-stats {
+.duel-body {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-  gap: 12px;
-  margin: 16px 0 10px;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 20px;
+  margin-top: 16px;
 }
 
-.duel-stats div {
+@media (min-width: 1100px) {
+  .duel-body {
+    grid-template-columns: minmax(340px, 0.85fr) minmax(0, 1.4fr);
+    align-items: start;
+  }
+}
+
+/* Tale of the tape: value | bar | label | bar | value */
+.duel-tape {
+  display: grid;
+  gap: 2px;
+}
+
+.tape-row {
+  display: grid;
+  grid-template-columns: 3.4rem minmax(0, 1fr) minmax(8.5rem, auto) minmax(0, 1fr) 3.4rem;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 0;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.tape-head {
+  padding-bottom: 8px;
+  border-bottom-color: var(--line);
+}
+
+.tape-head .tape-value {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text);
+  font-size: 0.9rem;
+}
+
+.tape-head .tape-value-b {
+  justify-content: flex-end;
+}
+
+.tape-label {
+  color: var(--muted);
+  font-size: 0.78rem;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.tape-value {
+  color: var(--muted);
+  font-size: 1.05rem;
+  font-weight: 650;
+  font-stretch: var(--narrow);
+}
+
+.tape-value-b {
+  text-align: right;
+}
+
+.tape-value.is-ahead {
+  color: var(--text);
+}
+
+.tape-bar {
+  display: flex;
+  height: 6px;
+  background: var(--surface-2);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.tape-bar-a {
+  justify-content: flex-end;
+}
+
+.tape-bar i {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+  opacity: 0.4;
+}
+
+.tape-bar.is-ahead i {
+  opacity: 1;
+}
+
+.duel-chart-wrap {
+  position: relative;
   min-width: 0;
 }
 
-.duel-stats dt {
+.duel-chart-title {
+  margin: 0 0 8px;
   color: var(--dim);
   font-size: 0.75rem;
 }
 
-.duel-stats dd {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 2px 6px;
-  margin: 2px 0 0;
-  font-size: 1.35rem;
-  font-weight: 700;
-  font-stretch: var(--narrow);
+/* Round-by-round finishes */
+.duel-rounds {
+  margin-top: 18px;
+  overflow-x: auto;
 }
 
-.duel-stats small {
-  flex-basis: 100%;
+.duel-rounds:empty {
+  display: none;
+}
+
+.duel-rounds-table {
+  width: 100%;
+  min-width: 640px;
+  border-collapse: separate;
+  border-spacing: 2px;
+  font-size: 0.78rem;
+}
+
+.duel-rounds-table th,
+.duel-rounds-table td {
+  padding: 5px 2px;
+  text-align: center;
+  border: 0;
+}
+
+.duel-rounds-table thead th {
   color: var(--dim);
-  font-size: 0.72rem;
-  font-weight: 400;
-  font-stretch: 100%;
+  font-weight: 500;
+}
+
+.duel-rounds-table thead small {
+  display: block;
+  color: var(--dim);
+  font-size: 0.62rem;
+  letter-spacing: 0.04em;
+}
+
+.duel-rounds-table tbody th {
+  padding-right: 8px;
+  color: var(--text);
+  font-weight: 600;
+  text-align: left;
+}
+
+.duel-who {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.duel-rounds-table td {
+  color: var(--muted);
+  background: var(--surface-2);
+  border-radius: 4px;
+}
+
+.duel-rounds-table td.is-ahead {
+  color: var(--text);
+  font-weight: 650;
+  background: color-mix(in srgb, var(--team) 26%, var(--surface-2));
+  box-shadow: inset 0 -2px 0 var(--team);
+}
+
+.duel-rounds-table td.is-out {
+  color: var(--red);
 }
 
 .duel-pip {

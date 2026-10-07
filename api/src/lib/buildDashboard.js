@@ -255,7 +255,9 @@ async function buildDashboardSnapshot(log = console) {
       pointsProgression = await buildPointsProgression({
         completed,
         meetings,
+        sessions,
         latestRows: championshipDrivers,
+        latestResults: results,
         driverChampionship,
         log,
       });

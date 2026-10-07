@@ -1274,10 +1274,20 @@ function coloursClash(a, b) {
 function duelPool() {
   const progression = state.dashboard?.pointsProgression;
   if (!progression?.rounds?.length) return [];
-  const series = new Map((progression.drivers || []).map((row) => [String(row.driverNumber), row.points]));
+  const rows = new Map((progression.drivers || []).map((row) => [String(row.driverNumber), row]));
   return (state.dashboard.driverChampionship || [])
-    .filter((driver) => series.has(String(driver.driverNumber)))
-    .map((driver) => ({ ...driver, series: series.get(String(driver.driverNumber)) }));
+    .filter((driver) => rows.has(String(driver.driverNumber)))
+    .map((driver) => {
+      const row = rows.get(String(driver.driverNumber));
+      return {
+        ...driver,
+        series: row.points,
+        finish: row.finish,
+        status: row.status,
+        racePoints: row.racePoints,
+        qualifying: row.qualifying,
+      };
+    });
 }
 
 function renderDuelOptions() {
@@ -1298,40 +1308,123 @@ function renderDuelOptions() {
   renderDuel();
 }
 
-function duelStatsMarkup(a, b, rounds) {
-  const last = rounds.length - 1;
-  const gapNow = (a.series[last] ?? 0) - (b.series[last] ?? 0);
-  let swing = { value: 0, round: null, leader: null };
-  let aBetter = 0;
-  let bBetter = 0;
-  for (let i = 0; i < rounds.length; i += 1) {
-    const pa = a.series[i];
-    const pb = b.series[i];
-    if (pa == null || pb == null) continue;
-    if (Math.abs(pa - pb) > swing.value) swing = { value: Math.abs(pa - pb), round: rounds[i], leader: pa > pb ? a : b };
-    const scoredA = pa - (i ? a.series[i - 1] ?? 0 : 0);
-    const scoredB = pb - (i ? b.series[i - 1] ?? 0 : 0);
-    if (scoredA > scoredB) aBetter += 1;
-    else if (scoredB > scoredA) bBetter += 1;
-  }
-  const leader = gapNow > 0 ? a : b;
-  const stat = (label, value, detail = "") =>
-    `<div><dt>${escapeHtml(label)}</dt><dd>${value}${detail ? `<small>${escapeHtml(detail)}</small>` : ""}</dd></div>`;
-  const named = (driver, text) =>
-    `<span class="duel-pip" style="background:${escapeHtml(driver.colour)}"></span>${escapeHtml(driver.acronym || driver.fullName)} ${escapeHtml(text)}`;
-  return [
-    stat("Gap now", gapNow === 0 ? "Level" : named(leader, `+${formatPoints(Math.abs(gapNow))}`)),
-    stat(
-      "Biggest gap",
-      swing.leader ? named(swing.leader, `+${formatPoints(swing.value)}`) : "—",
-      swing.round ? `after R${swing.round.round} ${String(swing.round.meetingName || "").replace(" Grand Prix", "")}` : ""
-    ),
-    stat(
-      "Outscored the other",
-      `${escapeHtml(a.acronym)} ${aBetter} · ${bBetter} ${escapeHtml(b.acronym)}`,
-      `rounds, of ${rounds.length}`
-    ),
-  ].join("");
+function seasonRecord(driver, rounds) {
+  const finish = driver.finish || [];
+  const status = driver.status || [];
+  const quali = driver.qualifying || [];
+  const racePoints = driver.racePoints || [];
+  const classified = rounds.map((_, i) => (finish[i] != null && !status[i] ? finish[i] : null));
+  const finishes = classified.filter((value) => value != null);
+  const qualis = quali.filter((value) => value != null);
+  const mean = (values) => (values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null);
+  return {
+    points: driver.series.at(-1) ?? 0,
+    wins: finishes.filter((value) => value === 1).length,
+    podiums: finishes.filter((value) => value <= 3).length,
+    poles: qualis.filter((value) => value === 1).length,
+    pointsFinishes: racePoints.filter((value) => value > 0).length,
+    retirements: status.filter(Boolean).length,
+    avgFinish: mean(finishes),
+    avgQuali: mean(qualis),
+    // Race rank for head-to-heads: a retirement ranks behind any finisher.
+    raceRank: rounds.map((_, i) => (finish[i] == null && !status[i] ? null : classified[i] ?? Infinity)),
+    qualiRank: rounds.map((_, i) => quali[i] ?? null),
+  };
+}
+
+function headToHead(rankA, rankB) {
+  let a = 0;
+  let b = 0;
+  rankA.forEach((value, i) => {
+    const other = rankB[i];
+    if (value == null || other == null || value === other) return;
+    if (value < other) a += 1;
+    else b += 1;
+  });
+  return [a, b];
+}
+
+function finishLabel(driver, i) {
+  const status = driver.status?.[i];
+  if (status) return status;
+  const position = driver.finish?.[i];
+  return position == null ? "—" : `P${position}`;
+}
+
+// Tale of the tape: one row per stat, each side's bar sized by its share and
+// the better side drawn at full strength.
+function duelTapeMarkup(a, b, rounds) {
+  const ra = seasonRecord(a, rounds);
+  const rb = seasonRecord(b, rounds);
+  const [raceA, raceB] = headToHead(ra.raceRank, rb.raceRank);
+  const [qualiA, qualiB] = headToHead(ra.qualiRank, rb.qualiRank);
+  const average = (value) => (value == null ? "—" : value.toFixed(1));
+  const rows = [
+    { label: "Points", a: ra.points, b: rb.points, show: formatPoints },
+    { label: "Wins", a: ra.wins, b: rb.wins },
+    { label: "Podiums", a: ra.podiums, b: rb.podiums },
+    { label: "Race head-to-head", a: raceA, b: raceB },
+    { label: "Qualifying head-to-head", a: qualiA, b: qualiB },
+    { label: "Poles", a: ra.poles, b: rb.poles },
+    { label: "Average finish", a: ra.avgFinish, b: rb.avgFinish, lower: true, show: average },
+    { label: "Average grid slot", a: ra.avgQuali, b: rb.avgQuali, lower: true, show: average },
+    { label: "Points finishes", a: ra.pointsFinishes, b: rb.pointsFinishes },
+    { label: "Retirements", a: ra.retirements, b: rb.retirements, lower: true },
+  ];
+  const body = rows
+    .map((row) => {
+      const show = row.show || String;
+      // Averages compare at the precision shown, so 3.3 vs 3.3 is a tie.
+      const shown = (v) => (v == null ? null : row.show === average ? Math.round(v * 10) / 10 : v);
+      const va = shown(row.a);
+      const vb = shown(row.b);
+      let shareA = 0.5;
+      let winner = null;
+      if (va != null && vb != null && va !== vb) {
+        winner = row.lower ? (va < vb ? "a" : "b") : va > vb ? "a" : "b";
+        const total = va + vb;
+        if (total > 0) shareA = row.lower ? vb / total : va / total;
+      }
+      const bar = (side, share) =>
+        `<span class="tape-bar tape-bar-${side}${winner === side ? " is-ahead" : ""}"><i style="width:${(share * 100).toFixed(1)}%;background:${escapeHtml(side === "a" ? a.colour : b.colour)}"></i></span>`;
+      const value = (side, v) =>
+        `<span class="tape-value tape-value-${side}${winner === side ? " is-ahead" : ""}">${escapeHtml(v == null ? "—" : show(v))}${winner === side ? `<span class="sr-only"> (ahead)</span>` : ""}</span>`;
+      return `<div class="tape-row">
+        ${value("a", va)}${bar("a", shareA)}<span class="tape-label">${escapeHtml(row.label)}</span>${bar("b", 1 - shareA)}${value("b", vb)}
+      </div>`;
+    })
+    .join("");
+  const head = `<div class="tape-row tape-head" aria-hidden="true">
+    <span class="tape-value tape-value-a"><span class="duel-pip" style="background:${escapeHtml(a.colour)}"></span>${escapeHtml(a.acronym)}</span>
+    <span></span><span class="tape-label">${rounds.length} rounds</span><span></span>
+    <span class="tape-value tape-value-b">${escapeHtml(b.acronym)}<span class="duel-pip" style="background:${escapeHtml(b.colour)}"></span></span>
+  </div>`;
+  return head + body;
+}
+
+// Round-by-round: both finishes per Grand Prix, the better one tinted.
+function duelRoundsMarkup(a, b, rounds) {
+  const ra = seasonRecord(a, rounds);
+  const rb = seasonRecord(b, rounds);
+  const cell = (driver, record, other, i) => {
+    const mine = record.raceRank[i];
+    const theirs = other.raceRank[i];
+    const ahead = mine != null && theirs != null && mine < theirs;
+    const style = ahead ? ` style="--team:${escapeHtml(driver.colour)}"` : "";
+    return `<td class="${ahead ? "is-ahead" : ""}${driver.status?.[i] ? " is-out" : ""}"${style}>${escapeHtml(finishLabel(driver, i))}</td>`;
+  };
+  const head = rounds
+    .map((round) => `<th scope="col" title="${escapeHtml(round.meetingName || "")}">R${round.round}<small>${escapeHtml(String(round.meetingName || "").replace(" Grand Prix", "").slice(0, 3).toUpperCase())}</small></th>`)
+    .join("");
+  const row = (driver, record, other) =>
+    `<tr><th scope="row"><span class="duel-who"><span class="duel-pip" style="background:${escapeHtml(driver.colour)}"></span>${escapeHtml(driver.acronym)}</span></th>${rounds
+      .map((_, i) => cell(driver, record, other, i))
+      .join("")}</tr>`;
+  return `<table class="duel-rounds-table">
+    <caption class="sr-only">Race finishes by round</caption>
+    <thead><tr><th scope="col"><span class="sr-only">Driver</span></th>${head}</tr></thead>
+    <tbody>${row(a, ra, rb)}${row(b, rb, ra)}</tbody>
+  </table>`;
 }
 
 function svgEl(name, attrs = {}) {
@@ -1357,6 +1450,7 @@ function renderDuel({ animate = true } = {}) {
   chart.closest(".season-duel")?.classList.toggle("is-unavailable", Boolean(state.dashboard) && !available);
   if (!available) {
     stats.innerHTML = "";
+    $("duel-rounds").innerHTML = "";
     chart.innerHTML = `<p class="empty-hint">${
       state.dashboard ? "Season history shows up after the next data refresh." : "Loading season history…"
     }</p>`;
@@ -1374,7 +1468,8 @@ function renderDuel({ animate = true } = {}) {
   $("duel-key-b").classList.toggle("is-dashed", dashed);
 
   const rounds = progression.rounds;
-  stats.innerHTML = duelStatsMarkup(a, b, rounds);
+  stats.innerHTML = duelTapeMarkup(a, b, rounds);
+  $("duel-rounds").innerHTML = duelRoundsMarkup(a, b, rounds);
 
   const width = Math.max(chart.clientWidth, 280);
   const height = Math.max(Math.min(chart.clientHeight || 260, 320), 200);
