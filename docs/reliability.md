@@ -20,6 +20,14 @@ The HTTP handler does not retry OpenF1 on a stale read. It returns the cached bo
 
 Until the first successful refresh, `GET /api/dashboard` returns 503. That is the empty-cache case, not a failed refresh.
 
+## Browser copy
+
+The frontend keeps the last good dashboard in `localStorage` (`pitwall-dashboard-v1`). A repeat visit renders that copy first, then refreshes in the background. If the refresh fails, the page stays on the browser copy, says how old it is, and retries every 60 seconds. A first-time visitor with no copy sees skeletons, then a plain-language message if the API is unreachable.
+
+## Points history is optional
+
+The season points history is built inside the dashboard refresh, but a failure there is caught and logged. The snapshot ships with `pointsProgression: null`, and the Compare page says history will appear after the next refresh. It never blocks standings.
+
 ## Independent race caches
 
 Race-detail blobs are per `sessionKey`. A miss that fails (404, 429, 502) does not touch `dashboard.json` or other race files. The Season So Far list stays usable.

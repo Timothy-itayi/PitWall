@@ -46,11 +46,17 @@ Shape (fields the frontend actually consumes):
   },
   "driverChampionship": [],
   "teamChampionship": [],
-  "previousRaces": []
+  "previousRaces": [],
+  "pointsProgression": {
+    "rounds": [{ "round": 1, "sessionKey": 11234, "meetingName": "Australian Grand Prix", "date": "2026-03-08T06:00:00+00:00" }],
+    "drivers": [{ "driverNumber": 12, "points": [18, 47, 72] }]
+  }
 }
 ```
 
 `previousRaces` is every completed, non-cancelled current-season session whose `session_name` is `Race`, newest first. No lap telemetry is stored here.
+
+`pointsProgression` is cumulative championship points after each completed Grand Prix, oldest first, for every driver in `driverChampionship`. `points[i]` lines up with `rounds[i]`, and `null` means the driver had no row for that round. It is `null` when there is no completed race, or when building the history failed. The rest of the snapshot still ships in that case.
 
 ## `GET /api/race/{sessionKey}`
 

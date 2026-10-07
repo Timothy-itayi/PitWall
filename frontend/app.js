@@ -14,6 +14,8 @@ const state = {
   compareCards: [],
   countdownTarget: null,
   countdownTimer: null,
+  dashboardRetry: null,
+  animated: false,
 };
 
 const COMPARE_CAP = 6;
@@ -150,6 +152,124 @@ function showBanner(message) {
   banner.textContent = message || "";
 }
 
+// Last good dashboard, kept in the browser so repeat visits paint instantly
+// while the network refresh runs behind it.
+const SNAPSHOT_KEY = "pitwall-dashboard-v1";
+const RETRY_MS = 60 * 1000;
+
+function readCachedSnapshot() {
+  try {
+    const raw = localStorage.getItem(SNAPSHOT_KEY);
+    const snapshot = raw ? JSON.parse(raw) : null;
+    return snapshot && snapshot.generatedAt ? snapshot : null;
+  } catch (_err) {
+    return null;
+  }
+}
+
+function writeCachedSnapshot(snapshot) {
+  try {
+    localStorage.setItem(SNAPSHOT_KEY, JSON.stringify(snapshot));
+  } catch (_err) {
+    /* private mode or quota */
+  }
+}
+
+function formatAge(value) {
+  const then = Date.parse(value);
+  if (Number.isNaN(then)) return "earlier";
+  const minutes = Math.round((Date.now() - then) / 60000);
+  const rtf = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" });
+  if (minutes < 60) return rtf.format(-Math.max(minutes, 0), "minute");
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return rtf.format(-hours, "hour");
+  return rtf.format(-Math.round(hours / 24), "day");
+}
+
+function apiError(response, payload) {
+  const err = new Error(payload?.error || `Request failed (${response.status})`);
+  err.status = response.status;
+  return err;
+}
+
+// Plain-language wording for anything a fetch can throw.
+function friendlyError(err) {
+  const status = err?.status;
+  if (!status) return "Can't reach the data service right now. Check your connection and try again.";
+  if (status === 404) return "OpenF1 hasn't published this one yet.";
+  if (status === 400) return "That request didn't look right. Try another selection.";
+  if (status === 503) return "The first data snapshot is still being built. Check back in a few minutes.";
+  return "The data service is catching up. Try again in a minute.";
+}
+
+// Motion is a garnish: GSAP comes from a CDN, so every call checks it loaded
+// and that the viewer hasn't asked for reduced motion.
+function canAnimate() {
+  return Boolean(window.gsap) && !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
+
+function animatePodium() {
+  if (!canAnimate()) return;
+  const rows = $("podium").querySelectorAll("li[style]");
+  if (!rows.length) return;
+  // P2 and P3 step up first, then the winner, like the ceremony.
+  const order = [rows[1], rows[2], rows[0]].filter(Boolean);
+  gsap.fromTo(order, { "--rise": 0, y: 18, opacity: 0 }, {
+    "--rise": 1,
+    y: 0,
+    opacity: 1,
+    duration: 0.6,
+    ease: "power3.out",
+    stagger: 0.14,
+    clearProps: "transform,opacity",
+  });
+}
+
+function animateStandings(container) {
+  if (!canAnimate() || !container) return;
+  const rows = container.querySelectorAll(".standings-row");
+  if (!rows.length) return;
+  gsap.fromTo(rows, { opacity: 0, x: -10 }, {
+    opacity: 1,
+    x: 0,
+    duration: 0.45,
+    ease: "power2.out",
+    stagger: 0.025,
+    clearProps: "transform,opacity",
+  });
+  gsap.fromTo(container.querySelectorAll(".team-pip"), { scaleY: 0 }, {
+    scaleY: 1,
+    duration: 0.5,
+    ease: "back.out(2)",
+    stagger: 0.025,
+    clearProps: "transform",
+  });
+  container.querySelectorAll(".standings-pts").forEach((cell, index) => {
+    const target = Number(cell.dataset.points);
+    if (!Number.isFinite(target) || target === 0) return;
+    const counter = { value: 0 };
+    cell.textContent = "0";
+    gsap.to(counter, {
+      value: target,
+      duration: 0.9,
+      delay: index * 0.025,
+      ease: "power2.out",
+      onUpdate: () => {
+        cell.textContent = Number.isInteger(target) ? String(Math.round(counter.value)) : counter.value.toFixed(1);
+      },
+      onComplete: () => {
+        cell.textContent = formatPoints(target);
+      },
+    });
+  });
+}
+
+function animateDashboard() {
+  animatePodium();
+  animateStandings($("drivers-chart"));
+  animateStandings($("teams-chart"));
+}
+
 function setPageLoading(loading) {
   document.body.classList.toggle("is-loading", loading);
   $("main").setAttribute("aria-busy", loading ? "true" : "false");
@@ -178,19 +298,44 @@ function tickCountdown() {
   }
   const diff = Math.max(0, target - Date.now());
   const seconds = Math.floor(diff / 1000);
-  setText(ids.d, pad(Math.floor(seconds / 86400)));
-  setText(ids.h, pad(Math.floor((seconds % 86400) / 3600)));
-  setText(ids.m, pad(Math.floor((seconds % 3600) / 60)));
-  setText(ids.s, pad(seconds % 60));
+  setCountDigit(ids.d, pad(Math.floor(seconds / 86400)));
+  setCountDigit(ids.h, pad(Math.floor((seconds % 86400) / 3600)));
+  setCountDigit(ids.m, pad(Math.floor((seconds % 3600) / 60)));
+  setCountDigit(ids.s, pad(seconds % 60));
 }
 
-function renderFreshness(dashboard) {
+// Only digits that changed roll down into place.
+function setCountDigit(id, value) {
+  const node = $(id);
+  if (node.textContent === value) return;
+  node.textContent = value;
+  if (!node.dataset.ticking) {
+    node.dataset.ticking = "1";
+    return;
+  }
+  if (!canAnimate()) return;
+  gsap.fromTo(node, { yPercent: -35, opacity: 0.2 }, { yPercent: 0, opacity: 1, duration: 0.35, ease: "power2.out" });
+}
+
+// note: "checking" while a background refresh runs, "offline" when it failed
+// and we're still on the browser copy.
+function renderFreshness(dashboard, { note } = {}) {
   const node = $("freshness");
   const stamp = formatDate(dashboard.generatedAt);
-  node.classList.toggle("stale", Boolean(dashboard.stale));
-  node.innerHTML = dashboard.stale
-    ? `<span class="freshness-line">Updated ${escapeHtml(stamp)}</span><span class="freshness-note">OpenF1 refresh failed. Showing the last good snapshot.</span>`
-    : `<span class="freshness-line">Updated ${escapeHtml(stamp)}</span>`;
+  const behind = Boolean(dashboard.stale) || note === "offline";
+  node.classList.toggle("stale", behind);
+  node.classList.toggle("checking", note === "checking");
+  let detail = "";
+  if (note === "offline") {
+    detail = "Couldn't reach the data service. Retrying shortly.";
+  } else if (dashboard.stale) {
+    detail = "Data's catching up. Showing the last good snapshot.";
+  } else if (note === "checking") {
+    detail = "Checking for newer data…";
+  }
+  node.innerHTML = `<span class="freshness-line">Updated ${escapeHtml(stamp)}</span>${
+    detail ? `<span class="freshness-note">${detail}</span>` : ""
+  }`;
 }
 
 function renderBarChart(container, rows, { ariaLabel } = {}) {
@@ -298,7 +443,7 @@ function standingsRowMarkup(row, leader, { extra = "" } = {}) {
         ${detail}
       </span>
       ${extra}
-      <span class="standings-pts">${escapeHtml(formatPoints(row.points))}</span>
+      <span class="standings-pts" data-points="${escapeHtml(row.points ?? "")}">${escapeHtml(formatPoints(row.points))}</span>
       <span class="standings-gap">${escapeHtml(formatGap(leader, row.points))}</span>
     </li>`;
 }
@@ -988,17 +1133,22 @@ function sanitizeDashboard(dashboard) {
   return { ...dashboard, driverChampionship, teamChampionship, latestRace };
 }
 
-function renderDashboard(dashboard) {
+function renderDashboard(dashboard, { note } = {}) {
   state.dashboard = sanitizeDashboard(dashboard);
-  renderFreshness(state.dashboard);
+  renderFreshness(state.dashboard, { note });
   renderNextMeeting(state.dashboard.nextMeeting);
   renderLatestRace(state.dashboard.latestRace);
   renderChampionships(state.dashboard);
   renderSeason(state.dashboard.previousRaces || []);
   renderFieldOptions();
   renderCompareDrivers();
+  renderDuelOptions();
   setPageLoading(false);
   requestAnimationFrame(paintNextTrack);
+  if (!state.animated) {
+    state.animated = true;
+    animateDashboard();
+  }
 }
 
 function setRaceLoading(loading, message) {
@@ -1035,7 +1185,7 @@ async function loadRace(sessionKey) {
     const response = await fetch(apiUrl(`/api/race/${sessionKey}`));
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) {
-      throw new Error(payload.error || `Race request failed (${response.status})`);
+      throw apiError(response, payload);
     }
     state.race = payload;
     state.raceLoadingKey = null;
@@ -1060,7 +1210,7 @@ async function loadRace(sessionKey) {
     status.classList.remove("sheen-text");
     status.hidden = false;
     delete status.dataset.tone;
-    status.textContent = err.message;
+    status.textContent = friendlyError(err);
   }
 }
 
@@ -1074,7 +1224,7 @@ async function loadBattle(sessionKey) {
     const response = await fetch(apiUrl(`/api/race/${encodeURIComponent(key)}`));
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) {
-      throw new Error(payload.error || `Race request failed (${response.status})`);
+      throw apiError(response, payload);
     }
     state.raceCache.set(key, payload);
     return payload;
@@ -1084,6 +1234,296 @@ async function loadBattle(sessionKey) {
     return await request;
   } finally {
     if (state.raceInflight.get(key) === request) state.raceInflight.delete(key);
+  }
+}
+
+// ---------- Season head-to-head ----------
+// Cumulative points for two drivers, round by round. Team colour carries
+// identity; the gap between the lines is shaded in whoever is ahead.
+
+const SVG_NS = "http://www.w3.org/2000/svg";
+
+function srgbToLinear(channel) {
+  const c = channel / 255;
+  return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+}
+
+function hexToOklab(hex) {
+  const value = parseInt(hex.replace("#", ""), 16);
+  const r = srgbToLinear((value >> 16) & 255);
+  const g = srgbToLinear((value >> 8) & 255);
+  const b = srgbToLinear(value & 255);
+  const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b);
+  const m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b);
+  const s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b);
+  return [
+    0.2104542553 * l + 0.793617785 * m - 0.0040720468 * s,
+    1.9779984951 * l - 2.428592205 * m + 0.4505937099 * s,
+    0.0259040371 * l + 0.7827717662 * m - 0.808675766 * s,
+  ];
+}
+
+// Teammates share a colour and some liveries sit close together; below this
+// OKLab distance (x100) the second driver's line goes dashed.
+function coloursClash(a, b) {
+  const [l1, a1, b1] = hexToOklab(a);
+  const [l2, a2, b2] = hexToOklab(b);
+  return Math.hypot(l1 - l2, a1 - a2, b1 - b2) * 100 < 15;
+}
+
+function duelPool() {
+  const progression = state.dashboard?.pointsProgression;
+  if (!progression?.rounds?.length) return [];
+  const series = new Map((progression.drivers || []).map((row) => [String(row.driverNumber), row.points]));
+  return (state.dashboard.driverChampionship || [])
+    .filter((driver) => series.has(String(driver.driverNumber)))
+    .map((driver) => ({ ...driver, series: series.get(String(driver.driverNumber)) }));
+}
+
+function renderDuelOptions() {
+  const selectA = $("duel-a");
+  const selectB = $("duel-b");
+  if (!selectA || !selectB) return;
+  const pool = duelPool();
+  const options = pool
+    .map((driver) => `<option value="${escapeHtml(driver.driverNumber)}">P${escapeHtml(driver.position)} ${escapeHtml(driver.fullName)}</option>`)
+    .join("");
+  for (const [select, fallback] of [[selectA, pool[0]], [selectB, pool[1]]]) {
+    const current = select.value;
+    select.innerHTML = options;
+    select.disabled = pool.length < 2;
+    const keep = pool.some((driver) => String(driver.driverNumber) === current);
+    select.value = keep ? current : String(fallback?.driverNumber ?? "");
+  }
+  renderDuel();
+}
+
+function duelStatsMarkup(a, b, rounds) {
+  const last = rounds.length - 1;
+  const gapNow = (a.series[last] ?? 0) - (b.series[last] ?? 0);
+  let swing = { value: 0, round: null, leader: null };
+  let aBetter = 0;
+  let bBetter = 0;
+  for (let i = 0; i < rounds.length; i += 1) {
+    const pa = a.series[i];
+    const pb = b.series[i];
+    if (pa == null || pb == null) continue;
+    if (Math.abs(pa - pb) > swing.value) swing = { value: Math.abs(pa - pb), round: rounds[i], leader: pa > pb ? a : b };
+    const scoredA = pa - (i ? a.series[i - 1] ?? 0 : 0);
+    const scoredB = pb - (i ? b.series[i - 1] ?? 0 : 0);
+    if (scoredA > scoredB) aBetter += 1;
+    else if (scoredB > scoredA) bBetter += 1;
+  }
+  const leader = gapNow > 0 ? a : b;
+  const stat = (label, value, detail = "") =>
+    `<div><dt>${escapeHtml(label)}</dt><dd>${value}${detail ? `<small>${escapeHtml(detail)}</small>` : ""}</dd></div>`;
+  const named = (driver, text) =>
+    `<span class="duel-pip" style="background:${escapeHtml(driver.colour)}"></span>${escapeHtml(driver.acronym || driver.fullName)} ${escapeHtml(text)}`;
+  return [
+    stat("Gap now", gapNow === 0 ? "Level" : named(leader, `+${formatPoints(Math.abs(gapNow))}`)),
+    stat(
+      "Biggest gap",
+      swing.leader ? named(swing.leader, `+${formatPoints(swing.value)}`) : "—",
+      swing.round ? `after R${swing.round.round} ${String(swing.round.meetingName || "").replace(" Grand Prix", "")}` : ""
+    ),
+    stat(
+      "Outscored the other",
+      `${escapeHtml(a.acronym)} ${aBetter} · ${bBetter} ${escapeHtml(b.acronym)}`,
+      `rounds, of ${rounds.length}`
+    ),
+  ].join("");
+}
+
+function svgEl(name, attrs = {}) {
+  const node = document.createElementNS(SVG_NS, name);
+  for (const [key, value] of Object.entries(attrs)) node.setAttribute(key, value);
+  return node;
+}
+
+function niceStep(max) {
+  const raw = max / 4;
+  const power = 10 ** Math.floor(Math.log10(raw || 1));
+  const unit = [1, 2, 2.5, 5, 10].find((step) => step * power >= raw) || 10;
+  return unit * power;
+}
+
+function renderDuel({ animate = true } = {}) {
+  const chart = $("duel-chart");
+  const stats = $("duel-stats");
+  if (!chart || !stats) return;
+  const progression = state.dashboard?.pointsProgression;
+  const pool = duelPool();
+  if (!progression || pool.length < 2) {
+    stats.innerHTML = "";
+    chart.innerHTML = `<p class="empty-hint">${
+      state.dashboard ? "Season history shows up after the next data refresh." : "Loading season history…"
+    }</p>`;
+    return;
+  }
+  const pick = (id) => pool.find((driver) => String(driver.driverNumber) === $(id).value);
+  const a = pick("duel-a");
+  const b = pick("duel-b");
+  if (!a || !b) return;
+  a.colour = teamColour(a.teamColour, a.teamName);
+  b.colour = teamColour(b.teamColour, b.teamName);
+  const dashed = a.driverNumber !== b.driverNumber && coloursClash(a.colour, b.colour);
+  $("duel-key-a").style.cssText = `--team:${a.colour}`;
+  $("duel-key-b").style.cssText = `--team:${b.colour}`;
+  $("duel-key-b").classList.toggle("is-dashed", dashed);
+
+  const rounds = progression.rounds;
+  stats.innerHTML = duelStatsMarkup(a, b, rounds);
+
+  const width = Math.max(chart.clientWidth, 280);
+  const height = Math.max(Math.min(chart.clientHeight || 260, 320), 200);
+  const pad = { top: 12, right: 64, bottom: 26, left: 36 };
+  const plotW = width - pad.left - pad.right;
+  const plotH = height - pad.top - pad.bottom;
+  const maxPts = Math.max(1, ...a.series.filter(Number.isFinite), ...b.series.filter(Number.isFinite));
+  const step = niceStep(maxPts);
+  const top = Math.ceil(maxPts / step) * step;
+  const x = (i) => pad.left + (rounds.length === 1 ? plotW / 2 : (i / (rounds.length - 1)) * plotW);
+  const y = (v) => pad.top + plotH - (v / top) * plotH;
+
+  const svg = svgEl("svg", {
+    viewBox: `0 0 ${width} ${height}`,
+    width,
+    height,
+    role: "img",
+    "aria-label": `Cumulative points: ${a.fullName} ${formatPoints(a.series.at(-1))}, ${b.fullName} ${formatPoints(b.series.at(-1))} after ${rounds.length} rounds.`,
+  });
+  const clipId = "duel-clip";
+  const clip = svgEl("clipPath", { id: clipId });
+  const clipRect = svgEl("rect", { x: 0, y: 0, width, height });
+  clip.append(clipRect);
+  const defs = svgEl("defs");
+  defs.append(clip);
+  svg.append(defs);
+
+  const grid = svgEl("g", { class: "duel-grid" });
+  for (let v = 0; v <= top; v += step) {
+    grid.append(svgEl("line", { x1: pad.left, x2: pad.left + plotW, y1: y(v), y2: y(v) }));
+    const label = svgEl("text", { x: pad.left - 8, y: y(v) + 4, "text-anchor": "end" });
+    label.textContent = formatPoints(v);
+    grid.append(label);
+  }
+  const every = Math.ceil(rounds.length / Math.max(1, Math.floor(plotW / 34)));
+  rounds.forEach((round, i) => {
+    if (i % every && i !== rounds.length - 1) return;
+    const label = svgEl("text", { x: x(i), y: height - 6, "text-anchor": "middle" });
+    label.textContent = `R${round.round}`;
+    grid.append(label);
+  });
+  svg.append(grid);
+
+  // Gap shading: one band per segment, split where the lines cross.
+  const bands = svgEl("g", { "clip-path": `url(#${clipId})` });
+  for (let i = 0; i < rounds.length - 1; i += 1) {
+    const [a0, a1, b0, b1] = [a.series[i], a.series[i + 1], b.series[i], b.series[i + 1]];
+    if ([a0, a1, b0, b1].some((v) => v == null)) continue;
+    const d0 = a0 - b0;
+    const d1 = a1 - b1;
+    const band = (points, colour) =>
+      bands.append(svgEl("polygon", { points: points.map((p) => p.join(",")).join(" "), fill: colour, class: "duel-band" }));
+    if (d0 * d1 >= 0) {
+      if (d0 === 0 && d1 === 0) continue;
+      band([[x(i), y(a0)], [x(i + 1), y(a1)], [x(i + 1), y(b1)], [x(i), y(b0)]], d0 + d1 > 0 ? a.colour : b.colour);
+    } else {
+      const t = d0 / (d0 - d1);
+      const cx = x(i) + t * (x(i + 1) - x(i));
+      const cy = y(a0 + t * (a1 - a0));
+      band([[x(i), y(a0)], [cx, cy], [x(i), y(b0)]], d0 > 0 ? a.colour : b.colour);
+      band([[cx, cy], [x(i + 1), y(a1)], [x(i + 1), y(b1)]], d1 > 0 ? a.colour : b.colour);
+    }
+  }
+  svg.append(bands);
+
+  const linePath = (series) =>
+    series.reduce((path, v, i) => (v == null ? path : `${path}${path && series[i - 1] != null ? "L" : "M"}${x(i).toFixed(1)},${y(v).toFixed(1)}`), "");
+  const lines = svgEl("g", { "clip-path": `url(#${clipId})` });
+  lines.append(svgEl("path", { d: linePath(b.series), stroke: b.colour, class: `duel-line${dashed ? " is-dashed" : ""}` }));
+  lines.append(svgEl("path", { d: linePath(a.series), stroke: a.colour, class: "duel-line" }));
+  svg.append(lines);
+
+  // Direct labels at the line ends, nudged apart when they'd collide.
+  const last = rounds.length - 1;
+  const ends = [a, b]
+    .map((driver) => ({ driver, ly: y(driver.series[last] ?? 0) }))
+    .sort((p, q) => p.ly - q.ly);
+  if (ends[1].ly - ends[0].ly < 16) {
+    const mid = (ends[0].ly + ends[1].ly) / 2;
+    ends[0].ly = mid - 8;
+    ends[1].ly = mid + 8;
+  }
+  for (const { driver, ly } of ends) {
+    svg.append(svgEl("circle", { cx: x(last), cy: y(driver.series[last] ?? 0), r: 4, fill: driver.colour, class: "duel-end" }));
+    const label = svgEl("text", { x: x(last) + 10, y: ly + 4, class: "duel-label" });
+    label.textContent = `${driver.acronym} ${formatPoints(driver.series[last])}`;
+    svg.append(label);
+  }
+
+  // Hover layer: crosshair, markers and a tooltip for the nearest round.
+  const hover = svgEl("g", { class: "duel-hover", visibility: "hidden" });
+  const cross = svgEl("line", { y1: pad.top, y2: pad.top + plotH, class: "duel-cross" });
+  const dotA = svgEl("circle", { r: 4.5, fill: a.colour, class: "duel-end" });
+  const dotB = svgEl("circle", { r: 4.5, fill: b.colour, class: "duel-end" });
+  hover.append(cross, dotB, dotA);
+  svg.append(hover);
+  const hit = svgEl("rect", { x: pad.left - 12, y: 0, width: plotW + 24, height, fill: "transparent" });
+  svg.append(hit);
+
+  const tip = $("duel-tip");
+  const showRound = (i) => {
+    const round = rounds[i];
+    const pa = a.series[i];
+    const pb = b.series[i];
+    hover.setAttribute("visibility", "visible");
+    cross.setAttribute("x1", x(i));
+    cross.setAttribute("x2", x(i));
+    dotA.setAttribute("cx", x(i));
+    dotA.setAttribute("cy", y(pa ?? 0));
+    dotB.setAttribute("cx", x(i));
+    dotB.setAttribute("cy", y(pb ?? 0));
+    const gap = pa != null && pb != null ? pa - pb : null;
+    tip.innerHTML = `
+      <strong>R${round.round} · ${escapeHtml(String(round.meetingName || "").replace(" Grand Prix", " GP"))}</strong>
+      <span><i style="background:${escapeHtml(a.colour)}"></i>${escapeHtml(a.acronym)}<b>${escapeHtml(formatPoints(pa))}</b></span>
+      <span><i style="background:${escapeHtml(b.colour)}"></i>${escapeHtml(b.acronym)}<b>${escapeHtml(formatPoints(pb))}</b></span>
+      <span class="duel-tip-gap">Gap<b>${gap == null ? "—" : gap === 0 ? "Level" : `${escapeHtml(gap > 0 ? a.acronym : b.acronym)} +${escapeHtml(formatPoints(Math.abs(gap)))}`}</b></span>`;
+    tip.hidden = false;
+    const box = chart.getBoundingClientRect();
+    const host = chart.parentElement.getBoundingClientRect();
+    const left = box.left - host.left + x(i);
+    const flip = x(i) > width * 0.6;
+    tip.style.left = `${left}px`;
+    tip.style.top = `${box.top - host.top + pad.top}px`;
+    tip.classList.toggle("is-flipped", flip);
+  };
+  const hide = () => {
+    hover.setAttribute("visibility", "hidden");
+    tip.hidden = true;
+  };
+  const nearest = (event) => {
+    const rect = svg.getBoundingClientRect();
+    const px = ((event.clientX - rect.left) / rect.width) * width;
+    return Math.max(0, Math.min(rounds.length - 1, Math.round(((px - pad.left) / plotW) * (rounds.length - 1))));
+  };
+  hit.addEventListener("pointermove", (event) => showRound(nearest(event)));
+  hit.addEventListener("pointerleave", hide);
+
+  // Table view for screen readers.
+  const table = document.createElement("table");
+  table.className = "sr-only";
+  table.innerHTML = `<caption>Cumulative points by round</caption><thead><tr><th>Round</th><th>${escapeHtml(a.fullName)}</th><th>${escapeHtml(b.fullName)}</th></tr></thead><tbody>${rounds
+    .map((round, i) => `<tr><td>R${round.round} ${escapeHtml(round.meetingName || "")}</td><td>${escapeHtml(formatPoints(a.series[i]))}</td><td>${escapeHtml(formatPoints(b.series[i]))}</td></tr>`)
+    .join("")}</tbody>`;
+
+  chart.replaceChildren(svg, table);
+  hide();
+
+  if (animate && canAnimate()) {
+    gsap.fromTo(clipRect, { attr: { width: pad.left } }, { attr: { width }, duration: 1.1, ease: "power2.inOut" });
+    gsap.fromTo(svg.querySelectorAll(".duel-label, .duel-end"), { opacity: 0 }, { opacity: 1, duration: 0.3, delay: 0.9 });
   }
 }
 
@@ -1193,7 +1633,7 @@ function compareCardMarkup(card, driver, bestFinish, bestLap) {
     return `<article class="compare-card is-loading" style="--team:${escapeHtml(colour)}">${head}<p class="compare-status sheen-text">Loading race…</p></article>`;
   }
   if (card.status === "error") {
-    return `<article class="compare-card" style="--team:${escapeHtml(colour)}">${head}<p class="compare-status">${escapeHtml(card.error || "Race request failed")}</p></article>`;
+    return `<article class="compare-card" style="--team:${escapeHtml(colour)}">${head}<p class="compare-status">${escapeHtml(card.error || friendlyError())}</p><button type="button" class="compare-retry" data-retry-compare="${escapeHtml(card.id)}">Try again</button></article>`;
   }
   if (card.status === "absent" || !driver) {
     return `<article class="compare-card" style="--team:${escapeHtml(colour)}">${head}<p class="compare-status">Did not start.</p></article>`;
@@ -1257,8 +1697,21 @@ async function addCompareCard(driverNumber, sessionKey) {
   if (note && note.textContent === "That driver is already on this Grand Prix.") setCompareNote("");
   state.compareCards.push({ id, sessionKey: session, driverNumber: driver, status: "loading", error: "" });
   renderCompareBoard();
+  if (canAnimate()) {
+    const card = $("compare-board").lastElementChild;
+    gsap.fromTo(card, { y: 14, opacity: 0 }, { y: 0, opacity: 1, duration: 0.4, ease: "power2.out", clearProps: "transform,opacity" });
+  }
+  await fetchCompareCard(id);
+}
+
+async function fetchCompareCard(id) {
+  const pending = state.compareCards.find((row) => row.id === id);
+  if (!pending) return;
+  pending.status = "loading";
+  pending.error = "";
+  renderCompareBoard();
   try {
-    await loadBattle(session);
+    await loadBattle(pending.sessionKey);
     const card = state.compareCards.find((row) => row.id === id);
     if (!card) return;
     card.status = compareDriverRecord(card) ? "ready" : "absent";
@@ -1267,7 +1720,7 @@ async function addCompareCard(driverNumber, sessionKey) {
     const card = state.compareCards.find((row) => row.id === id);
     if (!card) return;
     card.status = "error";
-    card.error = err.message || "Race request failed";
+    card.error = friendlyError(err);
   }
   renderCompareBoard();
 }
@@ -1302,24 +1755,35 @@ function showChampionshipMap() {
 }
 
 async function loadDashboard() {
-  setPageLoading(true);
+  clearTimeout(state.dashboardRetry);
+  // Paint the browser copy first so nobody stares at skeletons on a repeat visit.
+  const cached = state.dashboard ? null : readCachedSnapshot();
+  if (cached) renderDashboard(cached, { note: "checking" });
+  else if (!state.dashboard) setPageLoading(true);
+  else renderFreshness(state.dashboard, { note: "checking" });
+
   try {
     const response = await fetch(apiUrl("/api/dashboard"));
     const payload = await response.json().catch(() => ({}));
-    if (response.status === 503) {
-      showBanner(payload.error || "Dashboard snapshot is not available yet.");
-      setText("freshness", "No snapshot yet");
-      setPageLoading(false);
+    if (!response.ok) throw apiError(response, payload);
+    writeCachedSnapshot(payload);
+    showBanner("");
+    if (state.dashboard && state.dashboard.generatedAt === payload.generatedAt) {
+      renderFreshness(state.dashboard);
+    } else {
+      renderDashboard(payload);
+    }
+  } catch (err) {
+    console.error("Dashboard load failed", err);
+    state.dashboardRetry = setTimeout(loadDashboard, RETRY_MS);
+    if (state.dashboard) {
+      showBanner(`Data's catching up. Showing standings from ${formatAge(state.dashboard.generatedAt)}.`);
+      renderFreshness(state.dashboard, { note: "offline" });
       return;
     }
-    if (!response.ok) {
-      throw new Error(payload.error || `Dashboard request failed (${response.status})`);
-    }
-    showBanner("");
-    renderDashboard(payload);
-  } catch (err) {
-    showBanner(err.message);
-    setText("freshness", "Failed to load dashboard");
+    showBanner(`${friendlyError(err)} We'll retry automatically.`);
+    setText("freshness", "Waiting for data");
+    $("freshness").classList.add("stale");
     setPageLoading(false);
   }
 }
@@ -2164,7 +2628,7 @@ async function loadTelemetry(driverNumber) {
     const response = await fetch(apiUrl(`/api/race/${sessionKey}/telemetry?driver=${encodeURIComponent(driverNumber)}`));
     const payload = await response.json().catch(() => ({}));
     if (seq !== state.telemetrySeq) return;
-    if (!response.ok) throw new Error(payload.error || `Telemetry request failed (${response.status})`);
+    if (!response.ok) throw apiError(response, payload);
     const driver = (state.race?.drivers || []).find((row) => String(row.driverNumber) === String(driverNumber));
     state.telemetry = {
       ...payload,
@@ -2176,7 +2640,7 @@ async function loadTelemetry(driverNumber) {
     if (seq !== state.telemetrySeq) return;
     state.telemetry = null;
     copy.classList.remove("sheen-text");
-    copy.textContent = err.message;
+    copy.textContent = friendlyError(err);
     setText("telemetry-pos", "—");
     paintRaceTrack();
   } finally {
@@ -2418,6 +2882,7 @@ function showView(view, { historyMode = "push" } = {}) {
     else history.pushState(null, "", nextHash);
   }
   if (next === "overview") requestAnimationFrame(paintNextTrack);
+  if (next === "battle") requestAnimationFrame(() => renderDuel());
 }
 
 function setNavOpen(open) {
@@ -2461,6 +2926,17 @@ function initShell() {
     const observer = new ResizeObserver(() => paintNextTrack());
     observer.observe(track.parentElement);
   }
+  const duel = $("duel-chart");
+  if (duel && "ResizeObserver" in window) {
+    let lastWidth = 0;
+    new ResizeObserver(([entry]) => {
+      const width = Math.round(entry.contentRect.width);
+      if (!width || width === lastWidth) return;
+      const first = !lastWidth;
+      lastWidth = width;
+      if (!first) renderDuel({ animate: false });
+    }).observe(duel);
+  }
 }
 
 $("compare-add")?.addEventListener("submit", (event) => {
@@ -2484,6 +2960,14 @@ $("compare-board")?.addEventListener("click", (event) => {
   const button = event.target.closest("[data-remove-compare]");
   if (!button) return;
   removeCompareCard(button.getAttribute("data-remove-compare"));
+});
+
+$("duel-a")?.addEventListener("change", () => renderDuel());
+$("duel-b")?.addEventListener("change", () => renderDuel());
+
+$("compare-board")?.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-retry-compare]");
+  if (button) fetchCompareCard(button.getAttribute("data-retry-compare"));
 });
 
 $("field-close")?.addEventListener("click", () => setFieldDrawerOpen(false));

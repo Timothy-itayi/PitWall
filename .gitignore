@@ -6,3 +6,6 @@ local.settings.json
 .DS_Store
 *.log
 .azurite/
+
+# iCloud: keep dependencies out of Desktop sync (node_modules -> node_modules.nosync)
+*.nosync/

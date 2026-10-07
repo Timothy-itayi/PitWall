@@ -8,7 +8,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,300..800&display=swap" />
-    <link rel="stylesheet" href="./styles.css?v=42" />
+    <link rel="stylesheet" href="./styles.css?v=45" />
   </head>
   <body class="is-loading" data-view="overview">
     <a class="skip-link" href="#main">Skip to content</a>
@@ -157,9 +157,33 @@
             <div class="panel-head">
               <div>
                 <h2 id="battle-heading">Compare drivers</h2>
-                <p class="panel-meta" id="battle-meta">Line up to six drivers from any race this season.</p>
+                <p class="panel-meta" id="battle-meta">Two drivers across the season, then up to six from any single race.</p>
               </div>
             </div>
+            <section class="season-duel" aria-labelledby="duel-heading">
+              <div class="duel-head">
+                <h3 id="duel-heading" class="section-label">Season head-to-head</h3>
+                <div class="duel-pickers">
+                  <label>
+                    <span class="duel-key" id="duel-key-a" aria-hidden="true"></span>
+                    <span class="sr-only">First driver</span>
+                    <select id="duel-a" aria-label="First driver"></select>
+                  </label>
+                  <span class="duel-vs" aria-hidden="true">vs</span>
+                  <label>
+                    <span class="duel-key" id="duel-key-b" aria-hidden="true"></span>
+                    <span class="sr-only">Second driver</span>
+                    <select id="duel-b" aria-label="Second driver"></select>
+                  </label>
+                </div>
+              </div>
+              <dl class="duel-stats" id="duel-stats"></dl>
+              <div class="duel-chart" id="duel-chart">
+                <div class="skeleton duel-skeleton" aria-hidden="true"></div>
+              </div>
+              <div class="duel-tip" id="duel-tip" role="status" hidden></div>
+            </section>
+            <h3 class="section-label race-label">Race by race</h3>
             <form class="compare-add" id="compare-add">
               <label>
                 Driver
@@ -182,7 +206,8 @@
         </div>
       </main>
     </div>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.13.0/gsap.min.js" integrity="sha384-HOvlOYPIs/zjoIkWUGXkVmXsjr8GuZLV+Q+rcPwmJOVZVpvTSXQChiN4t9Euv9Vc" crossorigin="anonymous"></script>
     <script src="./tracks.js?v=32"></script>
-    <script src="./app.js?v=43"></script>
+    <script src="./app.js?v=46"></script>
   </body>
 </html>

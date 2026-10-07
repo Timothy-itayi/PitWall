@@ -1,4 +1,5 @@
 const openf1 = require("./openf1");
+const { buildPointsProgression } = require("./buildProgression");
 
 const SCHEMA_VERSION = 1;
 
@@ -227,6 +228,7 @@ async function buildDashboardSnapshot(log = console) {
   let latestRace = null;
   let driverChampionship = [];
   let teamChampionship = [];
+  let pointsProgression = null;
 
   if (latestSession) {
     const results = await openf1.getSessionResult(latestSession.session_key);
@@ -247,6 +249,20 @@ async function buildDashboardSnapshot(log = console) {
     };
     driverChampionship = normalizeDriverChampionship(championshipDrivers, drivers);
     teamChampionship = normalizeTeamChampionship(championshipTeams, drivers);
+
+    // A nice-to-have: if history fails, the rest of the snapshot still ships.
+    try {
+      pointsProgression = await buildPointsProgression({
+        completed,
+        meetings,
+        latestRows: championshipDrivers,
+        driverChampionship,
+        log,
+      });
+      info(log, `Built points progression over ${pointsProgression.rounds.length} rounds`);
+    } catch (err) {
+      info(log, `Points progression skipped: ${err && err.message ? err.message : err}`);
+    }
   }
 
   return {
@@ -259,6 +275,7 @@ async function buildDashboardSnapshot(log = console) {
     driverChampionship,
     teamChampionship,
     previousRaces: previousRaces(sessions, meetings, now),
+    pointsProgression,
   };
 }
 

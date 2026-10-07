@@ -6,9 +6,12 @@
 - current team standings
 - **Season So Far** archive of completed Grand Prix races
 - on-demand cached race detail, used by PitWall Battle
+- **Season head-to-head**: cumulative points for two drivers across the season, with the gap shaded in the leader's team colour
 - **PitWall Battle** compares up to six driver-and-race cards
 - each card shows finishing position, fastest lap, and tyre stints
 - data freshness indicator
+- instant repeat visits from a browser copy of the last snapshot, refreshed in the background
+- entrance motion with GSAP (podium, standings, countdown), off under `prefers-reduced-motion`
 - last-known-good behavior when scheduled upstream refreshes fail
 
 ## Season So Far
